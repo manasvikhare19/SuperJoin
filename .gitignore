@@ -1,0 +1,51 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment variables & secrets
+.env
+.env.local
+.streamlit/secrets.toml
+
+# SQLite & Storage caches
+data/processed/*.db-journal
+data/processed/*.db-wal
+data/processed/*.db-shm
+.cache/
+.huggingface/
+huggingface/
+
+# Testing & Linting
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+starter-datasets.zip
+
