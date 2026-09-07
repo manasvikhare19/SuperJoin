@@ -13,6 +13,7 @@ def normalize_time_period(period_str: str) -> str:
 
     # Quarter detection
     quarter = None
+    fy = None
     q_match = re.search(r'\b(q[1-4]|first quarter|second quarter|third quarter|fourth quarter)\b', text)
     if q_match:
         q_raw = q_match.group(1)

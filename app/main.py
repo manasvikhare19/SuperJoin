@@ -89,9 +89,20 @@ def list_facts(
         facts = db.get_all_facts()
     return {"total": len(facts), "facts": [f.model_dump() for f in facts[:limit]]}
 
+@app.get("/api/four-cases")
+def get_four_cases():
+    """
+    Returns dynamically queried relationships representing the four core evaluation cases:
+    1. Corroboration
+    2. Contradiction
+    3. Context-based Reconciliation
+    4. Real Table Extraction Failure Case Study
+    """
+    return db.get_four_cases()
+
 @app.get("/api/relationships")
 def list_relationships(
-    relationship_type: Optional[str] = Query(None, description="Filter: CORROBORATES, CONTRADICTS, RECONCILES, UNRELATED")
+    relationship_type: Optional[str] = Query(None, description="Filter: CORROBORATES, CONTRADICTS, RECONCILES, NEEDS_REVIEW, UNRELATED")
 ):
     rels = db.list_relationships(relationship_filter=relationship_type)
     return {"total": len(rels), "relationships": rels}
@@ -118,5 +129,8 @@ def compare_facts(request: FactCompareRequest):
         "fact_b_id": fact_b.id,
         "relationship": res.relationship,
         "confidence": res.confidence,
-        "reasoning": res.reasoning
+        "reasoning": res.reasoning,
+        "why_explanation": getattr(res, "why_explanation", ""),
+        "why_not_explanation": getattr(res, "why_not_explanation", ""),
+        "breakdown": getattr(res, "breakdown", {})
     }

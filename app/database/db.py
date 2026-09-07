@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from app.config import DB_PATH
 from app.database.models import DocumentRecord, ChunkRecord, FactRecord, RelationshipRecord
+from app.ingestion.table_parser import get_demo_failure_case
 
 def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path))
@@ -13,7 +14,7 @@ def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
     return conn
 
 def init_db(db_path: Path = DB_PATH):
-    """Initializes SQLite database schema."""
+    """Initializes SQLite database schema and handles incremental migrations."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
@@ -56,6 +57,9 @@ def init_db(db_path: Path = DB_PATH):
                 scope TEXT DEFAULT '',
                 qualifiers_json TEXT DEFAULT '{}',
                 evidence TEXT NOT NULL,
+                evidence_status TEXT DEFAULT 'EXACT_MATCH',
+                extraction_method TEXT DEFAULT 'LLM',
+                confidence REAL DEFAULT 0.95,
                 fact_json TEXT NOT NULL,
                 embedding_blob BLOB,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -70,11 +74,31 @@ def init_db(db_path: Path = DB_PATH):
                 relationship TEXT NOT NULL,
                 confidence REAL NOT NULL,
                 reasoning TEXT NOT NULL,
+                why_explanation TEXT DEFAULT '',
+                why_not_explanation TEXT DEFAULT '',
+                confidence_breakdown_json TEXT DEFAULT '{}',
                 similarity REAL DEFAULT 0.0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(fact_a_id, fact_b_id)
             )
         """)
+
+        # Migrations for existing databases
+        fact_cols = [c[1] for c in cursor.execute("PRAGMA table_info(facts)").fetchall()]
+        if "evidence_status" not in fact_cols:
+            cursor.execute("ALTER TABLE facts ADD COLUMN evidence_status TEXT DEFAULT 'EXACT_MATCH'")
+        if "extraction_method" not in fact_cols:
+            cursor.execute("ALTER TABLE facts ADD COLUMN extraction_method TEXT DEFAULT 'LLM'")
+        if "confidence" not in fact_cols:
+            cursor.execute("ALTER TABLE facts ADD COLUMN confidence REAL DEFAULT 0.95")
+
+        rel_cols = [c[1] for c in cursor.execute("PRAGMA table_info(relationships)").fetchall()]
+        if "why_explanation" not in rel_cols:
+            cursor.execute("ALTER TABLE relationships ADD COLUMN why_explanation TEXT DEFAULT ''")
+        if "why_not_explanation" not in rel_cols:
+            cursor.execute("ALTER TABLE relationships ADD COLUMN why_not_explanation TEXT DEFAULT ''")
+        if "confidence_breakdown_json" not in rel_cols:
+            cursor.execute("ALTER TABLE relationships ADD COLUMN confidence_breakdown_json TEXT DEFAULT '{}'")
 
         # Indexes for fast lookup
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_docs_hash ON documents(file_hash)")
@@ -153,13 +177,16 @@ class DatabaseManager:
                     INSERT INTO facts (
                         document_id, chunk_id, page, subject, predicate, value,
                         unit, time_period, scope, qualifiers_json, evidence,
+                        evidence_status, extraction_method, confidence,
                         fact_json, embedding_blob
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         f.document_id, f.chunk_id, f.page, f.subject, f.predicate,
                         f.value, f.unit, f.time_period, f.scope, f.qualifiers_json,
-                        f.evidence, f.fact_json, f.embedding_blob
+                        f.evidence, getattr(f, "evidence_status", "EXACT_MATCH"),
+                        getattr(f, "extraction_method", "LLM"), getattr(f, "confidence", 0.95),
+                        f.fact_json, f.embedding_blob
                     )
                 )
                 ids.append(cursor.lastrowid)
@@ -200,10 +227,15 @@ class DatabaseManager:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO relationships (
-                    fact_a_id, fact_b_id, relationship, confidence, reasoning, similarity
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    fact_a_id, fact_b_id, relationship, confidence, reasoning,
+                    why_explanation, why_not_explanation, confidence_breakdown_json, similarity
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (rel.fact_a_id, rel.fact_b_id, rel.relationship, rel.confidence, rel.reasoning, rel.similarity)
+                (
+                    rel.fact_a_id, rel.fact_b_id, rel.relationship, rel.confidence, rel.reasoning,
+                    getattr(rel, "why_explanation", ""), getattr(rel, "why_not_explanation", ""),
+                    getattr(rel, "confidence_breakdown_json", "{}"), rel.similarity
+                )
             )
             conn.commit()
             return cursor.lastrowid
@@ -216,6 +248,9 @@ class DatabaseManager:
                 r.relationship,
                 r.confidence,
                 r.reasoning,
+                r.why_explanation,
+                r.why_not_explanation,
+                r.confidence_breakdown_json,
                 r.similarity,
                 r.created_at,
                 fa.id as fact_a_id,
@@ -226,6 +261,8 @@ class DatabaseManager:
                 fa.time_period as fact_a_period,
                 fa.scope as fact_a_scope,
                 fa.evidence as fact_a_evidence,
+                fa.evidence_status as fact_a_evidence_status,
+                fa.extraction_method as fact_a_extraction_method,
                 fa.page as fact_a_page,
                 da.id as doc_a_id,
                 da.filename as doc_a_filename,
@@ -237,6 +274,8 @@ class DatabaseManager:
                 fb.time_period as fact_b_period,
                 fb.scope as fact_b_scope,
                 fb.evidence as fact_b_evidence,
+                fb.evidence_status as fact_b_evidence_status,
+                fb.extraction_method as fact_b_extraction_method,
                 fb.page as fact_b_page,
                 db.id as doc_b_id,
                 db.filename as doc_b_filename
@@ -255,6 +294,27 @@ class DatabaseManager:
         with get_connection(self.db_path) as conn:
             rows = conn.execute(query, params).fetchall()
             return [dict(r) for r in rows]
+
+    def get_four_cases(self) -> Dict[str, Any]:
+        """
+        Dynamically queries the database for the 4 core cases required by the assignment:
+        1. Corroboration: Two documents affirming the same fact.
+        2. Contradiction: Two documents with incompatible values.
+        3. Context-based Reconciliation: Divergent figures reconciled by time/scope.
+        4. Real Extraction Failure Case Study: Demonstrating raw table flattening vs layout-aware recovery.
+        """
+        all_rels = self.list_relationships()
+
+        corrob_rel = next((r for r in all_rels if r["relationship"] == "CORROBORATES"), None)
+        contradict_rel = next((r for r in all_rels if r["relationship"] in ("CONTRADICTS", "LIKELY_CONTRADICTION")), None)
+        reconcile_rel = next((r for r in all_rels if r["relationship"] == "RECONCILES"), None)
+
+        return {
+            "corroboration": corrob_rel,
+            "contradiction": contradict_rel,
+            "reconciliation": reconcile_rel,
+            "extraction_failure": get_demo_failure_case()
+        }
 
     def get_stats(self) -> Dict[str, int]:
         with get_connection(self.db_path) as conn:

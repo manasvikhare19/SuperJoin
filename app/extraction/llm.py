@@ -45,7 +45,7 @@ class OllamaProvider(LLMProvider):
             payload["format"] = "json"
 
         try:
-            response = requests.post(url, json=payload, timeout=90)
+            response = requests.post(url, json=payload, timeout=15)
             response.raise_for_status()
             data = response.json()
             return data.get("response", "").strip()

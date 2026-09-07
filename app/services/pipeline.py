@@ -32,7 +32,8 @@ class KnowledgeLayerPipeline:
         file_input: Union[str, Path, bytes],
         filename: str,
         progress_callback: Optional[Callable[[str, float], None]] = None,
-        max_chunks: Optional[int] = None
+        max_chunks: Optional[int] = None,
+        force_heuristic: bool = False
     ) -> Dict[str, Any]:
         """
         End-to-end ingestion and cross-document reasoning for a single PDF.
@@ -102,10 +103,16 @@ class KnowledgeLayerPipeline:
             sub_pct = 0.35 + (0.35 * (idx / max(1, len(chunks))))
             update_progress(f"Extracting facts from chunk {idx+1}/{len(chunks)} (p. {chunk.page_start}-{chunk.page_end})...", sub_pct)
             
-            chunk_facts = self.fact_extractor.extract_facts_from_chunk(
-                chunk=chunk,
-                page_texts=page_texts
-            )
+            if force_heuristic:
+                chunk_facts = self.fact_extractor.fallback_heuristic_extraction(
+                    chunk=chunk,
+                    page_texts=page_texts
+                )
+            else:
+                chunk_facts = self.fact_extractor.extract_facts_from_chunk(
+                    chunk=chunk,
+                    page_texts=page_texts
+                )
             all_extracted_facts.extend(chunk_facts)
 
         if all_extracted_facts:
@@ -155,17 +162,20 @@ class KnowledgeLayerPipeline:
                 similarity=sim
             )
 
-            # Insert relationship if meaningful (or even UNRELATED with low confidence if needed)
+            # Insert relationship with explainability and composite confidence breakdown
             rel_record = RelationshipRecord(
                 fact_a_id=fa.id,
                 fact_b_id=fb.id,
                 relationship=res.relationship,
                 confidence=res.confidence,
                 reasoning=res.reasoning,
+                why_explanation=getattr(res, "why_explanation", ""),
+                why_not_explanation=getattr(res, "why_not_explanation", ""),
+                confidence_breakdown_json=json.dumps(getattr(res, "breakdown", {}) or {}),
                 similarity=sim
             )
             self.db.insert_relationship(rel_record)
-            if res.relationship in ["CORROBORATES", "CONTRADICTS", "RECONCILES"]:
+            if res.relationship in ["CORROBORATES", "CONTRADICTS", "RECONCILES", "LIKELY_CONTRADICTION", "NEEDS_REVIEW"]:
                 new_relationships_count += 1
 
         update_progress("Pipeline processing complete!", 1.0)
