@@ -29,6 +29,8 @@ wheels/
 .streamlit/secrets.toml
 
 # SQLite & Storage caches
+*.db
+data/processed/*.db
 data/processed/*.db-journal
 data/processed/*.db-wal
 data/processed/*.db-shm

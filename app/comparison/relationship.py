@@ -64,6 +64,8 @@ class RelationshipClassifier:
             fact_a.value, fact_a.unit, fact_b.value, fact_b.unit
         )
 
+        llm_relationship = None
+        llm_confidence = None
         llm_reasoning = None
         # Attempt LLM reasoning if circuit breaker is not tripped
         if not self._llm_circuit_broken:
@@ -82,15 +84,21 @@ Context Clues:
                 )
                 cleaned_json = clean_json_response(raw_response)
                 parsed = json.loads(cleaned_json)
+                llm_relationship = parsed.get("relationship", "").strip().upper()
+                raw_conf = parsed.get("confidence")
+                if isinstance(raw_conf, (int, float)):
+                    llm_confidence = float(raw_conf)
                 llm_reasoning = parsed.get("reasoning", "").strip()
             except Exception as e:
                 logger.info(f"LLM comparison endpoint unavailable or timed out ({e}). Tripping circuit breaker for remaining pairs.")
                 self._llm_circuit_broken = True
 
-        # Run multi-stage analytical decision pipeline
+        # Run multi-stage analytical decision pipeline with LLM signals and structural guardrails
         return evaluate_fact_relationship(
             fact_a=fact_a,
             fact_b=fact_b,
             similarity=similarity,
+            llm_relationship=llm_relationship,
+            llm_confidence=llm_confidence,
             llm_reasoning=llm_reasoning
         )

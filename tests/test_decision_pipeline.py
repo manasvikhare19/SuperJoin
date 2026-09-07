@@ -176,3 +176,61 @@ def test_table_ambiguity_detector():
     res = detect_table_ambiguity(flattened_text)
     assert res["is_ambiguous"] is True
     assert res["ambiguity_type"] == "AMBIGUOUS_TABLE_FLATTENING"
+
+def test_generic_acronym_matching():
+    ok1, score1, _ = check_entity_compatibility("SEBI", "Securities and Exchange Board of India")
+    assert ok1 is True
+    assert score1 >= 0.90
+
+    ok2, score2, _ = check_entity_compatibility("IMF", "International Monetary Fund")
+    assert ok2 is True
+    assert score2 >= 0.90
+
+def test_llm_primacy_adopted():
+    fact_a = FactRecord(
+        id=1, document_id=1, page=1, subject="Tesla Inc", predicate="total revenue",
+        value="96.77", unit="billion USD", time_period="FY2023", scope="consolidated",
+        evidence="Tesla total revenue reached 96.77 billion USD in FY2023.", fact_json="{}"
+    )
+    fact_b = FactRecord(
+        id=2, document_id=2, page=3, subject="Tesla", predicate="revenue",
+        value="96.77", unit="billion USD", time_period="FY2023", scope="consolidated",
+        evidence="Full year 2023 revenue recorded at 96.77 billion USD.", fact_json="{}"
+    )
+
+    res = evaluate_fact_relationship(
+        fact_a=fact_a,
+        fact_b=fact_b,
+        similarity=0.92,
+        llm_relationship="CORROBORATES",
+        llm_confidence=0.96,
+        llm_reasoning="Both filings confirm identical consolidated revenue of 96.77B USD for Tesla in FY23."
+    )
+    assert res.relationship == "CORROBORATES"
+    assert res.confidence >= 0.90
+    assert "Both filings confirm" in res.reasoning
+
+def test_llm_guardrail_catches_false_contradiction():
+    fact_year = FactRecord(
+        id=1, document_id=1, page=10, subject="Alphabet", predicate="revenues",
+        value="307.4", unit="billion USD", time_period="FY2023", scope="consolidated",
+        evidence="Annual revenue reached 307.4 billion.", fact_json="{}"
+    )
+    fact_q4 = FactRecord(
+        id=2, document_id=1, page=15, subject="Alphabet", predicate="revenues",
+        value="86.3", unit="billion USD", time_period="Q4-FY2023", scope="consolidated",
+        evidence="Fourth quarter revenue was 86.3 billion.", fact_json="{}"
+    )
+
+    # LLM mistakenly flagged CONTRADICTS due to differing figures
+    res = evaluate_fact_relationship(
+        fact_a=fact_year,
+        fact_b=fact_q4,
+        similarity=0.88,
+        llm_relationship="CONTRADICTS",
+        llm_confidence=0.90,
+        llm_reasoning="Figures 307.4 and 86.3 do not match."
+    )
+    # Structural guardrail intervenes and changes to RECONCILES
+    assert res.relationship == "RECONCILES"
+    assert "Structural guardrail reconciliation" in res.why_explanation

@@ -10,30 +10,43 @@ from app.database.models import FactRecord, RelationshipResult, ConfidenceBreakd
 
 logger = logging.getLogger(__name__)
 
-# Known entity aliases for financial & macroeconomic corpora
-ENTITY_CLUSTERS = [
-    {"delhivery", "delhivery limited", "delhivery ltd", "the company", "management"},
-    {"india", "indian economy", "republic of india", "government of india", "national economy"},
-    {"rbi", "reserve bank of india", "central bank", "monetary policy committee", "mpc"},
-    {"mospi", "nsso", "cso", "ministry of statistics and programme implementation", "national statistical office"},
-    {"fed", "federal reserve", "us federal reserve"},
-]
+# Generic legal and corporate entity suffixes to strip during normalization
+LEGAL_SUFFIXES = {
+    "limited", "ltd", "corp", "corporation", "inc", "co", "company",
+    "plc", "llc", "sa", "gmbh", "pvt", "holdings", "group"
+}
 
-PREDICATE_SYNONYMS = [
-    {"revenue from operations", "revenue from services", "total revenue", "revenue", "operating revenue", "turnover"},
-    {"real gdp growth", "gdp growth rate", "economic growth", "growth in real gdp", "gdp growth", "real gross domestic product"},
-    {"ebitda", "adjusted ebitda", "operating ebitda"},
-    {"pat", "profit after tax", "net profit", "net loss", "loss after tax"},
-    {"inflation", "cpi inflation", "headline inflation", "consumer price index"},
-]
+def check_acronym_match(s1: str, s2: str) -> bool:
+    """
+    Checks if s1 is an acronym/abbreviation of s2 or vice versa.
+    e.g. 'RBI' vs 'Reserve Bank of India', 'IMF' vs 'International Monetary Fund',
+    'SEBI' vs 'Securities and Exchange Board of India'.
+    """
+    for a, b in [(s1, s2), (s2, s1)]:
+        cleaned_a = re.sub(r'[^a-zA-Z]', '', a).upper()
+        if len(cleaned_a) < 2:
+            continue
+        words = [w for w in re.split(r'[\s\-_]+', b) if w and w.lower() not in {"of", "the", "and", "in", "for", "at", "on", "to"}]
+        if len(words) >= 2:
+            initials = "".join(w[0].upper() for w in words if w)
+            if cleaned_a == initials:
+                return True
+        all_words = [w for w in re.split(r'[\s\-_]+', b) if w]
+        if len(all_words) >= 2:
+            all_initials = "".join(w[0].upper() for w in all_words if w)
+            if cleaned_a == all_initials:
+                return True
+    return False
 
-def check_entity_compatibility(subj_a: str, subj_b: str) -> Tuple[bool, float, str]:
+def check_entity_compatibility(subj_a: str, subj_b: str, embedder: Optional[Any] = None) -> Tuple[bool, float, str]:
     """
     Evaluates whether two subjects refer to the same or compatible entity.
+    Zero hardcoded entity lists: uses legal designation stripping, acronym matching,
+    token overlap, and dense vector embedding similarity.
     Returns (is_compatible, score, explanation).
     """
-    sa = subj_a.strip().lower()
-    sb = subj_b.strip().lower()
+    sa = (subj_a or "").strip().lower()
+    sb = (subj_b or "").strip().lower()
 
     if not sa or not sb:
         return True, 0.5, "Incomplete entity names"
@@ -41,33 +54,60 @@ def check_entity_compatibility(subj_a: str, subj_b: str) -> Tuple[bool, float, s
     if sa == sb:
         return True, 1.0, f"Exact entity match ('{subj_a}')"
 
-    # Check clusters
-    for cluster in ENTITY_CLUSTERS:
-        if any(alias in sa for alias in cluster) and any(alias in sb for alias in cluster):
-            return True, 0.95, f"Entity alias match in cluster ({subj_a} ~ {subj_b})"
+    # Acronym / Abbreviation check (e.g. RBI vs Reserve Bank of India)
+    if check_acronym_match(subj_a, subj_b):
+        return True, 0.92, f"Acronym match ('{subj_a}' ~ '{subj_b}')"
 
-    # Token overlap check
-    tokens_a = set(re.findall(r'\w+', sa)) - {"the", "ltd", "limited", "corp", "inc", "co"}
-    tokens_b = set(re.findall(r'\w+', sb)) - {"the", "ltd", "limited", "corp", "inc", "co"}
+    # Legal designation stripping (e.g. Delhivery vs Delhivery Limited)
+    tokens_a = [w for w in re.findall(r'\w+', sa) if w not in LEGAL_SUFFIXES]
+    tokens_b = [w for w in re.findall(r'\w+', sb) if w not in LEGAL_SUFFIXES]
 
-    if tokens_a and tokens_b:
-        intersection = tokens_a.intersection(tokens_b)
-        overlap = len(intersection) / min(len(tokens_a), len(tokens_b))
-        if overlap >= 0.7:
-            return True, 0.85, f"High entity token overlap ({subj_a} ~ {subj_b})"
-        elif overlap > 0:
-            return True, 0.60, f"Partial entity token overlap ({subj_a} ~ {subj_b})"
+    if tokens_a and tokens_b and tokens_a == tokens_b:
+        return True, 0.95, f"Entity match excluding legal designations ('{subj_a}' ~ '{subj_b}')"
+
+    # Token overlap check on non-legal tokens
+    set_a, set_b = set(tokens_a), set(tokens_b)
+    if set_a and set_b:
+        intersection = set_a.intersection(set_b)
+        min_len = min(len(set_a), len(set_b))
+        if min_len > 0:
+            overlap = len(intersection) / min_len
+            if overlap >= 0.7:
+                return True, 0.85, f"High entity token overlap ({subj_a} ~ {subj_b})"
+            elif overlap > 0:
+                return True, 0.60, f"Partial entity token overlap ({subj_a} ~ {subj_b})"
+
+    # Dense vector embedding similarity check
+    if embedder is None:
+        try:
+            from app.embeddings.embedder import FactEmbedder
+            embedder = FactEmbedder()
+        except Exception:
+            embedder = None
+
+    if embedder is not None:
+        try:
+            vecs = embedder.embed_texts([subj_a, subj_b])
+            import numpy as np
+            sim = float(np.dot(vecs[0], vecs[1]))
+            if sim >= 0.85:
+                return True, round(sim, 3), f"High semantic embedding similarity ({sim:.2f}) between entities ('{subj_a}' ~ '{subj_b}')"
+            elif sim <= 0.35:
+                return False, round(sim, 3), f"Distinct entities by semantic embedding distance ({sim:.2f}): '{subj_a}' vs '{subj_b}'"
+        except Exception as e:
+            logger.debug(f"Embedding check error in entity compatibility: {e}")
 
     # Clear distinction
-    return False, 0.1, f"Distinct entities ('{subj_a}' vs '{subj_b}')"
+    return False, 0.10, f"Distinct entities ('{subj_a}' vs '{subj_b}')"
 
-def check_predicate_compatibility(pred_a: str, pred_b: str) -> Tuple[bool, float, str]:
+def check_predicate_compatibility(pred_a: str, pred_b: str, embedder: Optional[Any] = None) -> Tuple[bool, float, str]:
     """
     Evaluates whether two predicates measure the same economic/financial metric.
+    Zero hardcoded domain lists: uses normalized token overlap and dense MiniLM semantic similarity.
     Returns (is_compatible, score, explanation).
     """
-    pa = pred_a.strip().lower()
-    pb = pred_b.strip().lower()
+    pa = (pred_a or "").strip().lower()
+    pb = (pred_b or "").strip().lower()
 
     if not pa or not pb:
         return False, 0.2, "Incomplete predicate names"
@@ -75,20 +115,41 @@ def check_predicate_compatibility(pred_a: str, pred_b: str) -> Tuple[bool, float
     if pa == pb:
         return True, 1.0, f"Exact predicate match ('{pred_a}')"
 
-    for syn_group in PREDICATE_SYNONYMS:
-        if any(syn in pa for syn in syn_group) and any(syn in pb for syn in syn_group):
-            return True, 0.90, f"Synonymous metric group ('{pred_a}' ~ '{pred_b}')"
+    # Token overlap check on informative content tokens
+    stop_words = {"from", "of", "in", "and", "the", "on", "for", "to", "at", "by", "rate", "basis", "level", "total"}
+    tokens_a = set(re.findall(r'\w+', pa)) - stop_words
+    tokens_b = set(re.findall(r'\w+', pb)) - stop_words
 
-    tokens_a = set(re.findall(r'\w+', pa)) - {"from", "of", "in", "and", "the"}
-    tokens_b = set(re.findall(r'\w+', pb)) - {"from", "of", "in", "and", "the"}
-
+    overlap = 0.0
     if tokens_a and tokens_b:
         intersection = tokens_a.intersection(tokens_b)
-        overlap = len(intersection) / max(len(tokens_a), len(tokens_b))
-        if overlap >= 0.6:
-            return True, 0.80, f"High predicate overlap ({pred_a} ~ {pred_b})"
-        elif overlap > 0.3:
-            return True, 0.55, f"Moderate predicate overlap ({pred_a} ~ {pred_b})"
+        max_len = max(len(tokens_a), len(tokens_b))
+        overlap = len(intersection) / max_len if max_len > 0 else 0.0
+        if overlap >= 0.5:
+            return True, 0.85, f"High predicate token overlap ({pred_a} ~ {pred_b})"
+
+    # Dense vector embedding similarity check
+    if embedder is None:
+        try:
+            from app.embeddings.embedder import FactEmbedder
+            embedder = FactEmbedder()
+        except Exception:
+            embedder = None
+
+    if embedder is not None:
+        try:
+            vecs = embedder.embed_texts([pred_a, pred_b])
+            import numpy as np
+            sim = float(np.dot(vecs[0], vecs[1]))
+            if sim >= 0.65:
+                return True, round(sim, 3), f"High semantic predicate similarity ({sim:.2f}) between metrics ('{pred_a}' ~ '{pred_b}')"
+            elif sim < 0.35 and overlap == 0:
+                return False, round(sim, 3), f"Incompatible metrics ('{pred_a}' vs '{pred_b}')"
+        except Exception as e:
+            logger.debug(f"Embedding check error in predicate compatibility: {e}")
+
+    if overlap > 0.25:
+        return True, 0.60, f"Moderate predicate overlap ({pred_a} ~ {pred_b})"
 
     return False, 0.15, f"Incompatible metrics ('{pred_a}' vs '{pred_b}')"
 
@@ -147,17 +208,20 @@ def evaluate_fact_relationship(
     fact_a: FactRecord,
     fact_b: FactRecord,
     similarity: float = 0.0,
-    llm_reasoning: Optional[str] = None
+    llm_relationship: Optional[str] = None,
+    llm_confidence: Optional[float] = None,
+    llm_reasoning: Optional[str] = None,
+    embedder: Optional[Any] = None
 ) -> RelationshipResult:
     """
     Executes the 6-stage analytical decision pipeline to determine the cross-document
-    relationship between Fact A and Fact B with calibrated composite confidence
-    and explicit explainability (Why and Why Not).
+    relationship between Fact A and Fact B with calibrated composite confidence,
+    LLM primary classification, structural sanity guardrails, and explainability.
     """
     # ----------------------------------------------------
     # Stage 1: Entity Compatibility
     # ----------------------------------------------------
-    ent_ok, ent_score, ent_expl = check_entity_compatibility(fact_a.subject, fact_b.subject)
+    ent_ok, ent_score, ent_expl = check_entity_compatibility(fact_a.subject, fact_b.subject, embedder=embedder)
     if not ent_ok:
         breakdown = {
             "semantic_similarity": round(similarity, 3),
@@ -168,10 +232,13 @@ def evaluate_fact_relationship(
             "numerical_compatibility": 0.1,
             "composite_score": round(0.30 * similarity + 0.20 * ent_score + 0.05, 3)
         }
+        why = f"Entities are fundamentally distinct: '{fact_a.subject}' vs '{fact_b.subject}'. No cross-document relation applies."
+        if llm_relationship and llm_relationship.upper() not in ("UNRELATED", "UNKNOWN"):
+            why = f"Structural guardrail overrule: LLM suggested '{llm_relationship}', but entities '{fact_a.subject}' and '{fact_b.subject}' are distinct (score: {ent_score:.2f}). Overruled to UNRELATED."
         return RelationshipResult(
             relationship="UNRELATED",
             confidence=0.95,
-            reasoning=f"Entities are fundamentally distinct: '{fact_a.subject}' vs '{fact_b.subject}'. No cross-document relation applies.",
+            reasoning=why,
             why_explanation=f"Fact A refers to entity '{fact_a.subject}' whereas Fact B refers to entity '{fact_b.subject}'.",
             why_not_explanation="Rejected CORROBORATES, CONTRADICTS, and RECONCILES: Facts from unrelated corporate or national entities cannot corroborate, contradict, or reconcile each other.",
             breakdown=breakdown
@@ -180,8 +247,8 @@ def evaluate_fact_relationship(
     # ----------------------------------------------------
     # Stage 2: Predicate Semantic Match
     # ----------------------------------------------------
-    pred_ok, pred_score, pred_expl = check_predicate_compatibility(fact_a.predicate, fact_b.predicate)
-    if not pred_ok and similarity < 0.70:
+    pred_ok, pred_score, pred_expl = check_predicate_compatibility(fact_a.predicate, fact_b.predicate, embedder=embedder)
+    if not pred_ok and similarity < 0.65:
         breakdown = {
             "semantic_similarity": round(similarity, 3),
             "entity_match": round(ent_score, 3),
@@ -191,11 +258,12 @@ def evaluate_fact_relationship(
             "numerical_compatibility": 0.1,
             "composite_score": round(0.30 * similarity + 0.20 * ent_score + 0.20 * pred_score + 0.10, 3)
         }
+        why = f"Metrics measure distinct operational phenomena: '{fact_a.predicate}' vs '{fact_b.predicate}'."
         return RelationshipResult(
             relationship="UNRELATED",
             confidence=0.90,
-            reasoning=f"Metrics measure distinct operational phenomena: '{fact_a.predicate}' vs '{fact_b.predicate}'.",
-            why_explanation=f"Fact A reports on '{fact_a.predicate}' while Fact B reports on '{fact_b.predicate}'.",
+            reasoning=why,
+            why_explanation=why,
             why_not_explanation="Rejected CORROBORATES and CONTRADICTS: Independent operational metrics do not validate or invalidate each other.",
             breakdown=breakdown
         )
@@ -238,7 +306,88 @@ def evaluate_fact_relationship(
     }
 
     # ----------------------------------------------------
-    # Stage 6: Relationship Decision & Explainability (Why / Why Not)
+    # Stage 6: Relationship Decision & Explainability (LLM Primacy with Structural Guardrails)
+    # ----------------------------------------------------
+    clean_llm_rel = (llm_relationship or "").strip().upper()
+
+    # Guardrail Check 1: Temporal Subset or Scope Divergence falsely called CONTRADICTION by LLM
+    if clean_llm_rel in ("CONTRADICTS", "LIKELY_CONTRADICTION"):
+        if time_rel == "SUBSET":
+            why = (
+                f"Structural guardrail reconciliation: LLM flagged contradiction on numerical difference, "
+                f"but temporal analysis proves granularity subset: {time_expl}."
+            )
+            why_not = (
+                "Rejected CONTRADICTS: A single quarter's financial results are an additive component of "
+                "the annual aggregate, not a contradictory claim. Rejected CORROBORATES: Quarterly and annual totals represent different operational durations."
+            )
+            return RelationshipResult(
+                relationship="RECONCILES",
+                confidence=composite_confidence,
+                reasoning=llm_reasoning or why,
+                why_explanation=why,
+                why_not_explanation=why_not,
+                breakdown=breakdown
+            )
+        elif scope_rel == "SCOPE_DIVERGENCE":
+            why = (
+                f"Structural guardrail reconciliation: LLM flagged contradiction on differing figures, "
+                f"but scope analysis proves perimeter divergence: {scope_expl}."
+            )
+            why_not = (
+                "Rejected CONTRADICTS: Standalone statements reflect only the legal parent, while consolidated "
+                "statements incorporate subsidiaries, joint ventures, and eliminations. Rejected CORROBORATES: Different reporting perimeters."
+            )
+            return RelationshipResult(
+                relationship="RECONCILES",
+                confidence=composite_confidence,
+                reasoning=llm_reasoning or why,
+                why_explanation=why,
+                why_not_explanation=why_not,
+                breakdown=breakdown
+            )
+
+    # Guardrail Check 2: Identical Time & Scope with distinct numbers falsely called CORROBORATES by LLM
+    if clean_llm_rel == "CORROBORATES":
+        if time_rel in ("IDENTICAL", "UNKNOWN") and scope_rel in ("IDENTICAL", "DEFAULT_IDENTICAL") and not is_num_equiv:
+            why = (
+                f"Structural guardrail overrule: LLM suggested CORROBORATES, but values ({fact_a.value} {fact_a.unit} vs "
+                f"{fact_b.value} {fact_b.unit}) differ for identical period '{normalize_time_period(fact_a.time_period)}' and scope."
+            )
+            why_not = "Rejected CORROBORATES: Figures are mathematically irreconcilable."
+            return RelationshipResult(
+                relationship="CONTRADICTS",
+                confidence=composite_confidence,
+                reasoning=llm_reasoning or why,
+                why_explanation=why,
+                why_not_explanation=why_not,
+                breakdown=breakdown
+            )
+
+    # Guardrail Check 3: If LLM gave a recognized relationship that passed all guardrails: ADOPT AS PRIMARY
+    if clean_llm_rel in ("CORROBORATES", "CONTRADICTS", "LIKELY_CONTRADICTION", "RECONCILES", "UNRELATED", "NEEDS_REVIEW"):
+        final_conf = round(max(composite_confidence, float(llm_confidence) if llm_confidence else 0.85), 3)
+        why = llm_reasoning or f"Classified as {clean_llm_rel} based on comprehensive cross-document semantic analysis."
+        if clean_llm_rel == "CORROBORATES":
+            why_not = "Rejected CONTRADICTS: Figures and reporting metrics agree under normalized scale."
+        elif clean_llm_rel in ("CONTRADICTS", "LIKELY_CONTRADICTION"):
+            why_not = "Rejected CORROBORATES: Figures are materially divergent under identical reporting conditions."
+        elif clean_llm_rel == "RECONCILES":
+            why_not = "Rejected CONTRADICTS: Apparent numerical difference is explained by differing context, period, or scope."
+        else:
+            why_not = f"Alternative relationships rejected due to entity alignment score {ent_score:.2f} and metric score {pred_score:.2f}."
+
+        return RelationshipResult(
+            relationship=clean_llm_rel,
+            confidence=final_conf,
+            reasoning=llm_reasoning or why,
+            why_explanation=why,
+            why_not_explanation=why_not,
+            breakdown=breakdown
+        )
+
+    # ----------------------------------------------------
+    # Fallback / Deterministic Decision Modes (when LLM is offline or uninformative)
     # ----------------------------------------------------
 
     # Case A: Same Time & Same Scope

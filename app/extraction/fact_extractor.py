@@ -138,31 +138,46 @@ class FactExtractor:
         facts: List[FactRecord] = []
         seen_keys = set()
 
-        t_lower = text.lower()
+        # Generic candidate proper-noun extraction without hardcoded entity names
+        non_entity_words = {
+            "The", "This", "That", "These", "Those", "In", "On", "At", "For", "To", "From", "With", "By",
+            "As", "According", "Figure", "Table", "Source", "Note", "Total", "During", "Over", "Between",
+            "Revenue", "EBITDA", "PAT", "GDP", "CPI", "FY", "Quarter", "Reported", "Consolidated", "Standalone",
+            "Adjusted", "Annual", "Financial", "Statement", "Results", "Operations", "Balance", "Net", "Gross"
+        }
+
+        def extract_entities(segment: str) -> List[str]:
+            found = []
+            for match in re.finditer(r'\b[A-Z][a-zA-Z0-9\.]+(?:\s+[A-Z][a-zA-Z0-9\.]+)*\b', segment):
+                cand_str = match.group(0).strip()
+                words = [w for w in cand_str.split() if w not in non_entity_words]
+                if words and len(" ".join(words)) > 2:
+                    found.append(" ".join(words))
+            return found
+
+        # Determine chunk-level dominant entity
+        chunk_entities = extract_entities(text)
         default_subject = "Entity"
-        if "delhivery" in t_lower:
-            default_subject = "Delhivery"
-        elif "reserve bank" in t_lower or "rbi" in t_lower:
-            default_subject = "Reserve Bank of India"
-        elif "imf" in t_lower or "article iv" in t_lower:
-            default_subject = "IMF"
-        elif "economic survey" in t_lower or "gdp" in t_lower or "india" in t_lower:
-            default_subject = "India"
+        if chunk_entities:
+            from collections import Counter
+            default_subject = Counter(chunk_entities).most_common(1)[0][0]
 
         for cand in raw_candidates:
             s = cand.strip()
             if len(s) < 12 or len(s) > 350:
                 continue
 
-            fin_match = re.search(r'(?:₹|INR|Rs\.?)\s*([\d,]+(?:\.\d+)?)\s*(Cr|crore|million|mn|billion|bn|lakh)?', s, re.IGNORECASE)
+            fin_match = re.search(r'(?:₹|INR|Rs\.?|\$|€|£)\s*([\d,]+(?:\.\d+)?)\s*(Cr|crore|million|mn|billion|bn|lakh)?', s, re.IGNORECASE)
             pct_match = re.search(r'([\d]+(?:\.\d+)?)\s*(%|per\s*cent|percent)', s, re.IGNORECASE)
             vol_match = re.search(r'([\d,]+(?:\.\d+)?)\s*(Mn|million|Bn|billion|K)\s*(?:Tons|tons|shipments|parcels)', s, re.IGNORECASE)
 
             metric_name = None
             s_lower = s.lower()
-            if "revenue from services" in s_lower or "revenue from operation" in s_lower or "revenue from contract" in s_lower:
+            if "revenue from services" in s_lower:
+                metric_name = "revenue from services"
+            elif "revenue from operation" in s_lower or "revenue from contract" in s_lower:
                 metric_name = "revenue from operations"
-            elif "revenue" in s_lower and ("cr" in s_lower or "mn" in s_lower or "million" in s_lower or "₹" in s_lower):
+            elif "revenue" in s_lower and any(kw in s_lower for kw in ["cr", "mn", "million", "billion", "₹", "$", "€", "inr"]):
                 metric_name = "revenue from operations"
             elif "adj" in s_lower and "ebitda" in s_lower:
                 metric_name = "adjusted EBITDA"
@@ -178,6 +193,14 @@ class FactExtractor:
                 metric_name = "PTL freight tonnage"
             elif "current account deficit" in s_lower or "cad" in s_lower:
                 metric_name = "current account deficit"
+            else:
+                # Generic metric extraction: extract noun phrase preceding the numeric value
+                num_anchor = re.search(r'([A-Za-z\s]{3,35})\s+(?:of|is|was|stood at|reached|reported at|recorded at|grew by|declined by|amounted to|totaled|at)?\s*(?:₹|\$|€|£|INR|USD)?\s*[\d,]+', s)
+                if num_anchor:
+                    cand_phrase = num_anchor.group(1).strip()
+                    clean_tokens = [w for w in cand_phrase.split() if w.lower() not in {"reported", "recorded", "announced", "posted", "clocked", "the", "a", "an", "for", "in"}]
+                    if clean_tokens and len(" ".join(clean_tokens)) >= 4:
+                        metric_name = " ".join(clean_tokens)
 
             val = None
             unit = ""
@@ -209,12 +232,9 @@ class FactExtractor:
 
                 scope = "consolidated" if "consolidated" in s_lower else ("standalone" if "standalone" in s_lower else "")
 
-                # Subject refinement
-                subject = default_subject
-                if "india" in s_lower and "delhivery" not in s_lower and default_subject != "Delhivery":
-                    subject = "India"
-                elif "delhivery" in s_lower:
-                    subject = "Delhivery"
+                # Generic subject resolution: local sentence proper-noun candidate or dominant chunk subject
+                sentence_entities = extract_entities(s)
+                subject = sentence_entities[0] if sentence_entities else default_subject
 
                 key = (subject, metric_name, val, period, scope)
                 if key in seen_keys:

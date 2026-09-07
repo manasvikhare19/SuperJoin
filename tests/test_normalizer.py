@@ -14,6 +14,11 @@ def test_normalize_time_period():
     assert normalize_time_period("Fourth Quarter 2024") == "Q4-FY2024"
     assert normalize_time_period("Q4") == "Q4"
     assert normalize_time_period("current") == "current"
+    # Arbitrary years (past and future beyond 2021-2026)
+    assert normalize_time_period("2018-19") == "FY2019"
+    assert normalize_time_period("FY 2035") == "FY2035"
+    assert normalize_time_period("2031-2032") == "FY2032"
+    assert normalize_time_period("Q1 FY32") == "Q1-FY2032"
 
 def test_extract_numeric_value():
     assert extract_numeric_value("₹8,142.50 Cr") == 8142.50

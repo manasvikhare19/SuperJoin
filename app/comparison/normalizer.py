@@ -26,23 +26,41 @@ def normalize_time_period(period_str: str) -> str:
         elif "fourth" in q_raw or "q4" in q_raw:
             quarter = "Q4"
 
-    # Fiscal year detection - Check specific hyphenated ranges and FY prefixes before bare years
-    if re.search(r'\b(2024-25|2024-2025|fy\s*25|fy\s*2025)\b', text):
-        fy = "FY2025"
-    elif re.search(r'\b(2023-24|2023-2024|fy\s*24|fy\s*2024)\b', text):
-        fy = "FY2024"
-    elif re.search(r'\b(2025-26|2025-2026|fy\s*26|fy\s*2026)\b', text):
-        fy = "FY2026"
-    elif re.search(r'\b(2022-23|2022-2023|fy\s*23|fy\s*2023)\b', text):
-        fy = "FY2023"
-    elif re.search(r'\b(2021-22|2021-2022|fy\s*22|fy\s*2022)\b', text):
-        fy = "FY2022"
-    elif re.search(r'\b(2025)\b', text):
-        fy = "FY2025"
-    elif re.search(r'\b(2024)\b', text):
-        fy = "FY2024"
-    elif re.search(r'\b(2023)\b', text):
-        fy = "FY2023"
+    # Generic fiscal year and range detection for arbitrary years (e.g. 1990-2099)
+    # 1. Hyphenated/slashed year range (e.g., 2023-24, 2023-2024, FY 2024-25) -> ending year FY
+    range_match = re.search(r'\b(?:fy\s*)?(\d{4})\s*[-/]\s*(\d{2,4})\b', text)
+    if range_match:
+        y1_str, y2_str = range_match.group(1), range_match.group(2)
+        if len(y2_str) == 2:
+            fy = f"FY{y1_str[:2]}{y2_str}"
+        else:
+            fy = f"FY{y2_str}"
+
+    # 2. 2-digit range (e.g., 23-24, FY 23-24)
+    if not fy:
+        range_2d = re.search(r'\b(?:fy\s*)?(\d{2})\s*[-/]\s*(\d{2})\b', text)
+        if range_2d:
+            y2_val = int(range_2d.group(2))
+            century = 2000 if y2_val < 50 else 1900
+            fy = f"FY{century + y2_val}"
+
+    # 3. Explicit FY prefix with 2 or 4 digits (e.g., FY24, FY 2025, FY30)
+    if not fy:
+        fy_match = re.search(r'\bfy\s*(\d{2,4})\b', text)
+        if fy_match:
+            digits = fy_match.group(1)
+            if len(digits) == 2:
+                y_val = int(digits)
+                century = 2000 if y_val < 50 else 1900
+                fy = f"FY{century + y_val}"
+            elif len(digits) == 4:
+                fy = f"FY{digits}"
+
+    # 4. Standalone 4-digit calendar/fiscal year (e.g., 2024, 2018, 2030)
+    if not fy:
+        year_match = re.search(r'\b(19\d{2}|20\d{2})\b', text)
+        if year_match:
+            fy = f"FY{year_match.group(1)}"
 
     if quarter and fy:
         return f"{quarter}-{fy}"
