@@ -32,17 +32,24 @@
    ```
    *Note: If you are running Ollama locally with `qwen2.5:7b`, it will connect automatically to `http://localhost:11434`. Alternatively, you can provide a `GEMINI_API_KEY` in `.env` or directly inside the Streamlit sidebar.*
 
-4. **Launch the Streamlit Web Application:**
-   ```bash
-   python run.py ui
-   ```
-   *Or directly:*
-   ```bash
-   streamlit run app/ui/streamlit_app.py
-   ```
-   *The interactive UI opens at `http://localhost:8501`.*
+4. **Launch the Web UI (Choose Streamlit or Next.js React):**
+   - **Option A: Next.js React Application (Modern UI)**
+     ```bash
+     python run.py frontend
+     ```
+     *Or directly:*
+     ```bash
+     cd frontend && npm run dev
+     ```
+     *The application opens at `http://localhost:3000` (proxies `/api` to FastAPI).*
 
-5. **Launch the FastAPI REST Backend (Optional):**
+   - **Option B: Streamlit Application (Data Science UI)**
+     ```bash
+     python run.py ui
+     ```
+     *The interactive UI opens at `http://localhost:8501`.*
+
+5. **Launch the FastAPI REST Backend:**
    ```bash
    python run.py api
    ```

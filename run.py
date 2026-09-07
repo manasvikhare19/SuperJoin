@@ -15,6 +15,11 @@ def run_api():
         "--host", "0.0.0.0", "--port", "8000", "--reload"
     ], check=True)
 
+def run_frontend():
+    """Runs Next.js React frontend."""
+    frontend_dir = Path(__file__).parent / "frontend"
+    subprocess.run(["npm", "run", "dev"], cwd=str(frontend_dir), shell=True, check=True)
+
 def run_ingest(pdf_path: str, max_chunks: int = 15):
     """Ingests a PDF from command line."""
     from app.services.pipeline import KnowledgeLayerPipeline
@@ -41,6 +46,9 @@ def main():
     # api
     subparsers.add_parser("api", help="Launch FastAPI REST Backend")
 
+    # frontend
+    subparsers.add_parser("frontend", help="Launch Next.js React Web UI")
+
     # ingest
     ingest_parser = subparsers.add_parser("ingest", help="Ingest a PDF file")
     ingest_parser.add_argument("pdf_path", type=str, help="Path to PDF")
@@ -53,6 +61,8 @@ def main():
 
     if args.command == "ui":
         run_ui()
+    elif args.command == "frontend":
+        run_frontend()
     elif args.command == "api":
         run_api()
     elif args.command == "ingest":
@@ -60,7 +70,7 @@ def main():
     elif args.command == "test":
         run_tests()
     else:
-        print("Usage: python run.py [ui | api | ingest <path> | test]")
+        print("Usage: python run.py [ui | frontend | api | ingest <path> | test]")
         print("Defaulting to launching Streamlit UI...")
         run_ui()
 
