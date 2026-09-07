@@ -143,8 +143,24 @@ with tabs[0]:
     with col4:
         st.metric("Relationships", stats["relationships"])
 
+def show_dataframe(df):
+    try:
+        st.dataframe(df, width="stretch")
+    except TypeError:
+        st.dataframe(df, use_container_width=True)
+
     st.markdown("---")
     st.subheader("Upload & Process PDF")
+    
+    if not llm_client.is_any_available():
+        st.warning(
+            "⚠️ **Notice:** Ollama is not detected on `http://localhost:11434` and no Gemini API key is set. "
+            "Uploaded PDFs will be processed using the **deterministic rule-based fallback extractor**. "
+            "To enable deep LLM reasoning, either run `ollama run qwen2.5:7b` or enter your `GEMINI_API_KEY` in the left sidebar."
+        )
+    else:
+        st.success(f"🟢 **Active AI Engine:** `{llm_client.get_active_provider_name()}`")
+
     st.write("Upload any PDF document. The system calculates a SHA-256 hash for incremental deduplication, chunks text, extracts atomic facts, and matches relationships against existing documents.")
 
     uploaded_file = st.file_uploader("Choose a PDF file", type=["pdf"])
@@ -195,7 +211,7 @@ with tabs[0]:
                 "Extracted Facts": len(doc_facts),
                 "Uploaded At": d.uploaded_at
             })
-        st.dataframe(pd.DataFrame(doc_data), use_container_width=True)
+        show_dataframe(pd.DataFrame(doc_data))
     else:
         st.info("No documents processed yet. Upload a PDF above or run ingestion on the starter datasets.")
 
@@ -253,7 +269,7 @@ with tabs[1]:
                 "Scope": f.scope,
                 "Evidence": f.evidence[:80] + ("..." if len(f.evidence) > 80 else "")
             })
-        st.dataframe(pd.DataFrame(table_rows), use_container_width=True)
+        show_dataframe(pd.DataFrame(table_rows))
 
         st.markdown("---")
         st.subheader("Detailed Fact Inspection")

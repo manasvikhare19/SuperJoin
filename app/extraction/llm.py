@@ -131,6 +131,9 @@ class UnifiedLLM:
             return f"Ollama ({self.ollama.model})"
         return "No LLM Provider Available (Start Ollama or set GEMINI_API_KEY)"
 
+    def is_any_available(self) -> bool:
+        return self.ollama.is_available() or self.gemini.is_available()
+
     def generate(self, prompt: str, system_prompt: Optional[str] = None, json_mode: bool = True) -> str:
         # Check preference
         if self.preferred == "ollama" and self.ollama.is_available():
@@ -152,8 +155,14 @@ class UnifiedLLM:
                     return self.ollama.generate(prompt, system_prompt=system_prompt, json_mode=json_mode)
                 raise
 
-        # If neither worked, try Ollama directly to surface its connection error
-        return self.ollama.generate(prompt, system_prompt=system_prompt, json_mode=json_mode)
+        if self.ollama.is_available():
+            return self.ollama.generate(prompt, system_prompt=system_prompt, json_mode=json_mode)
+
+        # Neither is available
+        raise ConnectionError(
+            "No LLM provider is currently reachable. Please either run Ollama locally ('ollama run qwen2.5:7b') "
+            "or enter your GEMINI_API_KEY in the sidebar / .env."
+        )
 
 def clean_json_response(raw_text: str) -> str:
     """Strips markdown ```json ... ``` blocks and extracts parseable JSON string."""
