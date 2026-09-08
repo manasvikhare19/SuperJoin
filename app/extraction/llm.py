@@ -148,13 +148,25 @@ class UnifiedLLM:
 
         # Check Gemini
         if self.gemini.is_available():
-            try:
-                return self.gemini.generate(prompt, system_prompt=system_prompt, json_mode=json_mode)
-            except Exception as e:
-                logger.warning(f"Gemini failed, checking Ollama: {e}")
-                if self.ollama.is_available():
+            import time
+            for attempt in range(3):
+                try:
+                    return self.gemini.generate(prompt, system_prompt=system_prompt, json_mode=json_mode)
+                except Exception as e:
+                    if "503" in str(e) or "429" in str(e):
+                        logger.warning(f"Gemini rate limit/503 (attempt {attempt+1}/3), sleeping 3s: {e}")
+                        time.sleep(3)
+                        continue
+                    logger.warning(f"Gemini failed unexpectedly, checking Ollama: {e}")
+                    break
+            
+            if self.ollama.is_available():
+                try:
                     return self.ollama.generate(prompt, system_prompt=system_prompt, json_mode=json_mode)
-                raise
+                except Exception as e:
+                    logger.error(f"Ollama fallback also failed: {e}")
+                    raise
+            raise ConnectionError("Gemini failed and Ollama is not available.")
 
         if self.ollama.is_available():
             return self.ollama.generate(prompt, system_prompt=system_prompt, json_mode=json_mode)

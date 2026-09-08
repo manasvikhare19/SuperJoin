@@ -463,9 +463,9 @@ export default function Page() {
           ))}
 
           <p className="eyebrow nav-spacer">Intelligence Stack</p>
-          <div style={{ padding: '0 12px', fontSize: '11px', color: '#8fb5ac', lineHeight: '1.6' }}>
-            <div>Primary: <strong>Ollama (Qwen 7B)</strong></div>
-            <div>Fallback: <strong>Gemini 2.5 Flash</strong></div>
+          <div style={{ fontSize: '12px', color: '#88a59f', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div>Primary: <strong>{stats.documents > 0 ? "Gemini 3.6 Flash" : "Auto-Detect"}</strong></div>
+            <div>Fallback: <strong>Ollama (Local)</strong></div>
             <div>Embeddings: <strong>all-MiniLM-L6-v2</strong></div>
             <div>Candidate Index: <strong>FAISS FlatIP</strong></div>
             <div>Verifier: <strong>Sub-string Grounding</strong></div>

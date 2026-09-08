@@ -352,9 +352,9 @@ class DatabaseManager:
             contradict_rel = next((r for r in all_rels if r["relationship"] in ("CONTRADICTS", "LIKELY_CONTRADICTION")), None)
 
         # 3. Context-Based Reconciliation: Prefer cross-document pairs
-        reconcile_rel = next((r for r in all_rels if r["relationship"] == "RECONCILES" and r.get("doc_a_filename") != r.get("doc_b_filename")), None)
+        reconcile_rel = next((r for r in all_rels if r["relationship"] in ("RECONCILES", "TEMPORALLY_DISTINCT") and r.get("doc_a_filename") != r.get("doc_b_filename")), None)
         if not reconcile_rel:
-            reconcile_rel = next((r for r in all_rels if r["relationship"] == "RECONCILES"), None)
+            reconcile_rel = next((r for r in all_rels if r["relationship"] in ("RECONCILES", "TEMPORALLY_DISTINCT")), None)
 
         # 4. Real Extraction Failure & Guardrail Recovery: Dynamically discovered from guardrail interceptions
         guardrail_rel = next(

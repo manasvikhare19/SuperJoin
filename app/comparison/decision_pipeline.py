@@ -210,7 +210,7 @@ def check_evidence_similarity_guardrail(
     fact_a: FactRecord,
     fact_b: FactRecord,
     embedder: Optional[Any] = None,
-    threshold: float = 0.58
+    threshold: float = 0.62
 ) -> Tuple[bool, float, str]:
     """
     Computes dense embedding similarity between the source evidence sentences of fact_a and fact_b.
@@ -430,7 +430,7 @@ def evaluate_fact_relationship(
     # Guardrail Check 2: Identical Time & Scope with distinct numbers falsely called CORROBORATES by LLM
     if clean_llm_rel == "CORROBORATES":
         if time_rel in ("IDENTICAL", "UNKNOWN") and scope_rel in ("IDENTICAL", "DEFAULT_IDENTICAL") and not is_num_equiv:
-            ev_ok, ev_sim, ev_expl = check_evidence_similarity_guardrail(fact_a, fact_b, embedder=embedder, threshold=0.58)
+            ev_ok, ev_sim, ev_expl = check_evidence_similarity_guardrail(fact_a, fact_b, embedder=embedder, threshold=0.62)
             if not ev_ok:
                 why = (
                     f"Semantic evidence guardrail overrule: LLM suggested CORROBORATES with mismatched figures, "
@@ -461,7 +461,7 @@ def evaluate_fact_relationship(
     # Guardrail Check 3: If LLM gave a recognized relationship that passed all guardrails: ADOPT AS PRIMARY
     if clean_llm_rel in ("CORROBORATES", "CONTRADICTS", "LIKELY_CONTRADICTION", "RECONCILES", "TEMPORALLY_DISTINCT", "UNRELATED", "NEEDS_REVIEW"):
         if clean_llm_rel in ("CONTRADICTS", "LIKELY_CONTRADICTION"):
-            ev_ok, ev_sim, ev_expl = check_evidence_similarity_guardrail(fact_a, fact_b, embedder=embedder, threshold=0.58)
+            ev_ok, ev_sim, ev_expl = check_evidence_similarity_guardrail(fact_a, fact_b, embedder=embedder, threshold=0.62)
             if not ev_ok:
                 why = (
                     f"Semantic evidence guardrail overrule: LLM suggested {clean_llm_rel}, but source evidence "
@@ -548,7 +548,7 @@ def evaluate_fact_relationship(
                     breakdown=breakdown
                 )
             else:
-                ev_ok, ev_sim, ev_expl = check_evidence_similarity_guardrail(fact_a, fact_b, embedder=embedder, threshold=0.58)
+                ev_ok, ev_sim, ev_expl = check_evidence_similarity_guardrail(fact_a, fact_b, embedder=embedder, threshold=0.62)
                 if not ev_ok:
                     why = (
                         f"Semantic evidence guardrail overrule: Although metrics share predicate '{fact_a.predicate}', "

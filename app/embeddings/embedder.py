@@ -3,6 +3,7 @@ import logging
 from typing import List, Union
 import numpy as np
 from google import genai
+from google.genai import types
 from app.config import GEMINI_API_KEY
 from app.database.models import FactRecord
 
@@ -17,13 +18,13 @@ class FactEmbedder:
             cls._instance.client = None
         return cls._instance
 
-    def __init__(self, model_name: str = "text-embedding-004"):
+    def __init__(self, model_name: str = "gemini-embedding-001"):
         if getattr(self, "client", None) is None and getattr(self, "is_mock", None) is None:
             logger.info(f"Initializing Gemini Embedding Client for model: {model_name}...")
             api_key = GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
             
             self.model_name = model_name
-            self.dimension = 768  # text-embedding-004 fixed dimension
+            self.dimension = 768
             
             if not api_key:
                 logger.warning("No GEMINI_API_KEY found! Using mock embeddings for local testing.")
@@ -88,12 +89,20 @@ class FactEmbedder:
         
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i:i + batch_size]
-            response = self.client.models.embed_content(
-                model=self.model_name,
-                contents=batch_texts
-            )
-            batch_vectors = [emb.values for emb in response.embeddings]
-            all_embeddings.extend(batch_vectors)
+            config = types.EmbedContentConfig(output_dimensionality=self.dimension)
+            
+            try:
+                response = self.client.models.embed_content(
+                    model=self.model_name,
+                    contents=batch_texts,
+                    config=config
+                )
+                batch_vectors = [emb.values for emb in response.embeddings]
+                all_embeddings.extend(batch_vectors)
+            except Exception as e:
+                logger.warning(f"Embedding API quota reached or unavailable ({e}). Instantly falling back to deterministic local embeddings.")
+                self.is_mock = True
+                return self.embed_texts(texts)
         
         embeddings_np = np.array(all_embeddings, dtype=np.float32)
         

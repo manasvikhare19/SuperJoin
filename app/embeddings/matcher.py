@@ -31,8 +31,13 @@ class CandidateMatcher:
         if missing_indices:
             missing_facts = [all_facts[i] for i in missing_indices]
             computed_vectors = self.embedder.embed_facts(missing_facts)
+            from app.database.db import DatabaseManager
+            db = DatabaseManager()
             for idx, vec in zip(missing_indices, computed_vectors):
-                all_facts[idx].embedding_blob = FactEmbedder.vector_to_blob(vec)
+                blob = FactEmbedder.vector_to_blob(vec)
+                all_facts[idx].embedding_blob = blob
+                if all_facts[idx].id:
+                    db.update_fact_embedding(all_facts[idx].id, blob)
 
         # Build vectors in exact 1:1 positional order matching self.fact_records
         vectors = [FactEmbedder.blob_to_vector(f.embedding_blob) for f in all_facts]
