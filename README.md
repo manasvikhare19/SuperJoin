@@ -6,7 +6,7 @@
 
 ## Video Demo
 
-- **Loom Walkthrough:** [Watch System Demonstration](https://www.loom.com/share/superjoin-fact-knowledge-layer-demo) *(Technical walkthrough of PDF ingestion, dynamic four-cases discovery, Next.js UI, evidence provenance, and automated test suite)*
+- **Loom Walkthrough:** [Watch System Demonstration](https://drive.google.com/file/d/1B4JQd8M1Mq2Yyz_P4iOpNbjHZno1Xrhi/view?usp=sharing) *(Technical walkthrough of PDF ingestion, dynamic four-cases discovery, Next.js UI, evidence provenance, and automated test suite)*
 
 ---
 
