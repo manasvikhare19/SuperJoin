@@ -13,9 +13,17 @@ from app.database.models import FactRecord, RelationshipResult
 logger = logging.getLogger(__name__)
 
 class RelationshipClassifier:
-    def __init__(self, llm: Optional[UnifiedLLM] = None):
+    def __init__(self, llm: Optional[UnifiedLLM] = None, embedder: Optional[Any] = None):
         self.llm = llm or UnifiedLLM()
         self._llm_circuit_broken = False
+        if embedder is None:
+            try:
+                from app.embeddings.embedder import FactEmbedder
+                self.embedder = FactEmbedder()
+            except Exception:
+                self.embedder = None
+        else:
+            self.embedder = embedder
 
     def compare_facts(
         self,
@@ -28,7 +36,7 @@ class RelationshipClassifier:
         """
         Compares two facts from different documents using a hybrid approach:
         1. Evaluates multi-stage structural constraints (entity compatibility, predicate match,
-           time & scope analysis, numerical equivalence, calibrated composite confidence).
+           time & scope analysis, numerical equivalence, composite confidence score).
         2. Leverages LLM for deep contextual and nuanced linguistic explanations when available.
         3. Enforces strict entity & scope boundaries to prevent false reconciliations or contradictions.
         """
@@ -100,5 +108,6 @@ Context Clues:
             similarity=similarity,
             llm_relationship=llm_relationship,
             llm_confidence=llm_confidence,
-            llm_reasoning=llm_reasoning
+            llm_reasoning=llm_reasoning,
+            embedder=self.embedder
         )

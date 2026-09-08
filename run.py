@@ -20,8 +20,12 @@ def run_api():
     ], check=True)
 
 def run_frontend():
-    """Runs Next.js React frontend."""
+    """Runs Next.js React frontend (auto-installs dependencies if missing)."""
     frontend_dir = Path(__file__).parent / "frontend"
+    node_modules = frontend_dir / "node_modules"
+    if not node_modules.exists():
+        print("📦 node_modules not found. Installing frontend dependencies (npm install)...")
+        subprocess.run(["npm", "install"], cwd=str(frontend_dir), shell=True, check=True)
     subprocess.run(["npm", "run", "dev"], cwd=str(frontend_dir), shell=True, check=True)
 
 def run_ingest(pdf_path: str, max_chunks: Optional[int] = None):
@@ -45,6 +49,26 @@ def run_corpus(clean: bool = True):
 def run_tests():
     """Runs pytest suite."""
     subprocess.run([sys.executable, "-m", "pytest", "tests/", "-v"], check=True)
+
+def run_package():
+    """Packages a clean, lightweight submission zip."""
+    from scripts.package_submission import create_clean_zip
+    create_clean_zip()
+
+def run_clean():
+    """Removes temporary build artifacts (.next, __pycache__, .pytest_cache)."""
+    from scripts.package_submission import clean_local_temp_files
+    clean_local_temp_files()
+
+def run_benchmark():
+    """Runs empirical pipeline performance benchmarks."""
+    from scripts.benchmark_pipeline import run_benchmarks
+    run_benchmarks()
+
+def run_incremental():
+    """Verifies incremental ingestion, delta processing, and sub-10ms SHA-256 deduplication."""
+    from scripts.verify_incremental_ingestion import verify_incremental_ingestion
+    verify_incremental_ingestion()
 
 def main():
     parser = argparse.ArgumentParser(description="Fact Knowledge Layer CLI")
@@ -71,6 +95,19 @@ def main():
     # test
     subparsers.add_parser("test", help="Run automated test suite")
 
+    # incremental
+    subparsers.add_parser("incremental", help="Verify incremental ingestion & SHA-256 deduplication")
+
+    # package / zip
+    subparsers.add_parser("package", help="Create clean submission ZIP archive (~17 MB)")
+    subparsers.add_parser("zip", help="Alias for package")
+
+    # clean
+    subparsers.add_parser("clean", help="Remove temporary build artifacts (.next, pycache) to free disk space")
+
+    # benchmark
+    subparsers.add_parser("benchmark", help="Run empirical pipeline performance benchmarks")
+
     args = parser.parse_args()
 
     if args.command == "ui":
@@ -85,8 +122,16 @@ def main():
         run_ingest(args.pdf_path, args.max_chunks)
     elif args.command == "test":
         run_tests()
+    elif args.command == "incremental":
+        run_incremental()
+    elif args.command in ("package", "zip"):
+        run_package()
+    elif args.command == "clean":
+        run_clean()
+    elif args.command == "benchmark":
+        run_benchmark()
     else:
-        print("Usage: python run.py [frontend | api | ui | corpus | ingest <path> | test]")
+        print("Usage: python run.py [frontend | api | ui | corpus | ingest <path> | test | incremental | benchmark | zip | clean]")
         print("Defaulting to launching Next.js Frontend...")
         run_frontend()
 

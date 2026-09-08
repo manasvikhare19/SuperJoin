@@ -19,30 +19,23 @@ class CandidateMatcher:
 
     def build_index(self, all_facts: List[FactRecord]):
         """Builds a FAISS IndexFlatIP index over all existing facts."""
-        self.fact_records = all_facts
+        self.fact_records = list(all_facts)
         self.fact_id_map = {f.id: f for f in all_facts if f.id is not None}
         
         if not all_facts:
             self.index = faiss.IndexFlatIP(self.dimension)
             return
 
-        # Check if embeddings are already stored in blobs
-        vectors: List[np.ndarray] = []
-        missing_facts: List[FactRecord] = []
+        # Identify any facts missing embeddings and batch compute them upfront
+        missing_indices = [i for i, f in enumerate(all_facts) if not f.embedding_blob]
+        if missing_indices:
+            missing_facts = [all_facts[i] for i in missing_indices]
+            computed_vectors = self.embedder.embed_facts(missing_facts)
+            for idx, vec in zip(missing_indices, computed_vectors):
+                all_facts[idx].embedding_blob = FactEmbedder.vector_to_blob(vec)
 
-        for f in all_facts:
-            if f.embedding_blob:
-                vec = FactEmbedder.blob_to_vector(f.embedding_blob)
-                vectors.append(vec)
-            else:
-                missing_facts.append(f)
-
-        if missing_facts:
-            new_vectors = self.embedder.embed_facts(missing_facts)
-            for f, vec in zip(missing_facts, new_vectors):
-                f.embedding_blob = FactEmbedder.vector_to_blob(vec)
-                vectors.append(vec)
-
+        # Build vectors in exact 1:1 positional order matching self.fact_records
+        vectors = [FactEmbedder.blob_to_vector(f.embedding_blob) for f in all_facts]
         matrix = np.vstack(vectors).astype(np.float32)
         # Normalize vectors for cosine similarity via inner product
         faiss.normalize_L2(matrix)
@@ -50,6 +43,46 @@ class CandidateMatcher:
         self.index = faiss.IndexFlatIP(self.dimension)
         self.index.add(matrix)
         logger.info(f"FAISS index built with {self.index.ntotal} facts.")
+
+    def add_facts(self, new_facts: List[FactRecord]) -> int:
+        """
+        Incrementally adds new facts to the existing FAISS index in O(ΔN) time.
+        Avoids full index recomputation over existing facts.
+        """
+        if not new_facts:
+            return 0
+
+        if self.index is None:
+            self.build_index(new_facts)
+            return len(new_facts)
+
+        # Identify any new facts missing embeddings and batch compute them upfront
+        missing_indices = [i for i, f in enumerate(new_facts) if not f.embedding_blob]
+        if missing_indices:
+            missing_facts = [new_facts[i] for i in missing_indices]
+            computed_vectors = self.embedder.embed_facts(missing_facts)
+            for idx, vec in zip(missing_indices, computed_vectors):
+                new_facts[idx].embedding_blob = FactEmbedder.vector_to_blob(vec)
+
+        # Build vectors in exact 1:1 positional order matching new_facts
+        vectors = [FactEmbedder.blob_to_vector(f.embedding_blob) for f in new_facts]
+        matrix = np.vstack(vectors).astype(np.float32)
+        faiss.normalize_L2(matrix)
+
+        self.index.add(matrix)
+        self.fact_records.extend(new_facts)
+        for f in new_facts:
+            if f.id is not None:
+                self.fact_id_map[f.id] = f
+
+        logger.info(f"Incrementally added {len(new_facts)} facts to FAISS. Total in index: {self.index.ntotal}")
+        return len(new_facts)
+
+    def clear(self):
+        """Resets the FAISS index and associated fact records."""
+        self.index = None
+        self.fact_records = []
+        self.fact_id_map = {}
 
     def find_cross_document_candidates(
         self,

@@ -110,13 +110,14 @@ def run_ingestion(clean: bool = True):
     else:
         print("  (None found)")
 
-    # 4. Table Extraction Failure
-    print("\n[Case 4: Real Table Extraction Failure Case Study]")
+    # 4. Failure Case Study & Guardrail Resolution
+    print("\n[Case 4: Failure Mode & Semantic Guardrail Resolution]")
     ef = four_cases["extraction_failure"]
     print(f"  • Title: {ef['title']}")
     print(f"  • Document: {ef['document']} (Page {ef['page']})")
+    print(f"  • Failure Type: {ef['failure_type']}")
     print(f"  • Why Naive Extraction Fails: {ef['why_naive_extraction_fails']}")
-    print(f"  • Recovery Outcome: {ef['reconciliation_outcome']}")
+    print(f"  • Guardrail Resolution: {ef['reconciliation_outcome']}")
     print("\n" + "=" * 70)
 
 if __name__ == "__main__":

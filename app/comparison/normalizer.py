@@ -140,3 +140,47 @@ def are_numerically_equivalent(
             return True, f"Unit-normalized match: {val_a} {unit_a} (~{cr_a:.2f} Cr) is equivalent to {val_b} {unit_b} (~{cr_b:.2f} Cr)"
 
     return False, None
+
+def classify_unit_dimension(unit_str: str) -> str:
+    """
+    Classifies unit into a physical/economic dimension:
+    - 'PERCENTAGE': %, percent, per cent, bps, basis points
+    - 'CURRENCY': inr, inr crore, million inr, billion inr, usd, $, ₹, rs, eur, etc.
+    - 'VOLUME_COUNT': tons, tonnage, shipments, parcels, units, headcount
+    - 'RATIO': ratio, times, x
+    - 'UNSPECIFIED': empty or generic
+    """
+    if not unit_str:
+        return "UNSPECIFIED"
+    u = unit_str.strip().lower()
+    if any(k in u for k in ["percent", "%", "bps", "basis point"]):
+        return "PERCENTAGE"
+    if any(k in u for k in ["inr", "cr", "crore", "million inr", "billion inr", "lakh", "lac", "usd", "$", "₹", "rs", "eur", "gbp"]):
+        return "CURRENCY"
+    if any(k in u for k in ["ton", "shipment", "parcel", "count", "headcount", "unit", "employee", "people", "worker", "staff", "person"]):
+        return "VOLUME_COUNT"
+    if any(k in u for k in ["ppm", "ppb", "mg/l", "g/m3", "parts per million"]):
+        return "CONCENTRATION"
+    if any(k in u for k in ["°c", "celsius", "fahrenheit", "°f", "kelvin"]) or re.search(r'\b(?:deg\s*c|deg\s*f|k)\b', u):
+        return "TEMPERATURE"
+    if any(k in u for k in ["gw", "gigawatt", "mw", "megawatt", "kw", "kilowatt", "twh", "gwh", "mwh", "joule", "watt"]):
+        return "ENERGY_POWER"
+    if any(k in u for k in ["sq km", "square km", "sq mi", "square miles", "million sq km", "hectare", "acre"]):
+        return "AREA"
+    if any(k in u for k in ["ratio", "times", "x"]):
+        return "RATIO"
+    # Generic currency keywords if not already matched
+    if any(k in u for k in ["million", "billion", "mn", "bn"]):
+        return "CURRENCY"
+    return "UNSPECIFIED"
+
+def are_units_dimensionally_compatible(unit_a: str, unit_b: str) -> bool:
+    """
+    Checks whether two units belong to the same physical dimension.
+    A percentage (e.g. 10%) can never contradict or corroborate absolute currency (e.g. ₹8,142 Cr).
+    """
+    dim_a = classify_unit_dimension(unit_a)
+    dim_b = classify_unit_dimension(unit_b)
+    if dim_a == "UNSPECIFIED" or dim_b == "UNSPECIFIED":
+        return True
+    return dim_a == dim_b

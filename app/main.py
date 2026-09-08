@@ -31,6 +31,10 @@ class FactCompareRequest(BaseModel):
     fact_a_id: int
     fact_b_id: int
 
+class ReviewRequest(BaseModel):
+    status: str
+    notes: Optional[str] = ""
+
 @app.get("/")
 def read_root():
     stats = db.get_stats()
@@ -133,4 +137,30 @@ def compare_facts(request: FactCompareRequest):
         "why_explanation": getattr(res, "why_explanation", ""),
         "why_not_explanation": getattr(res, "why_not_explanation", ""),
         "breakdown": getattr(res, "breakdown", {})
+    }
+
+@app.post("/api/relationships/{rel_id}/review")
+def review_relationship(rel_id: int, request: ReviewRequest):
+    """
+    Persists human review decisions (ACCEPTED / REJECTED / RESET) with optional notes
+    directly to SQLite for auditing and high-precision evaluation.
+    """
+    valid_statuses = {"ACCEPTED", "REJECTED", "RESET"}
+    if request.status.upper() not in valid_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid review status '{request.status}'. Allowed: {sorted(list(valid_statuses))}"
+        )
+    
+    target_status = None if request.status.upper() == "RESET" else request.status.upper()
+    updated = db.update_relationship_review(rel_id=rel_id, status=target_status, notes=request.notes or "")
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Relationship ID {rel_id} not found.")
+    
+    return {
+        "status": "success",
+        "relationship_id": rel_id,
+        "human_review_status": updated.get("human_review_status"),
+        "reviewed_at": updated.get("reviewed_at"),
+        "reviewer_notes": updated.get("reviewer_notes")
     }

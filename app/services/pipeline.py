@@ -45,6 +45,9 @@ class KnowledgeLayerPipeline:
                 progress_callback(msg, pct)
             logger.info(f"[{pct*100:.0f}%] {msg}")
 
+        if force_heuristic:
+            self.classifier._llm_circuit_broken = True
+
         update_progress("Computing SHA-256 checksum...", 0.05)
         file_hash = compute_sha256(file_input)
 
@@ -130,16 +133,23 @@ class KnowledgeLayerPipeline:
         else:
             update_progress("No checkable facts found in text chunks.", 0.70)
 
-        # Cross-Document Relationship Matching
+        # Cross-Document Relationship Matching (Incremental FAISS)
         update_progress("Finding cross-document candidates with FAISS...", 0.80)
-        all_db_facts = self.db.get_all_facts()
-        self.matcher.build_index(all_db_facts)
+        
+        # If matcher has not been indexed yet, initialize with prior facts from DB
+        if self.matcher.index is None:
+            existing_db_facts = [f for f in self.db.get_all_facts() if f.document_id != doc_id]
+            self.matcher.build_index(existing_db_facts)
 
-        # Only compare new facts against existing facts
+        # Query candidates: compare new facts against existing facts in the index
         candidates = self.matcher.find_cross_document_candidates(
             new_facts=all_extracted_facts,
             top_k=10
         )
+
+        # Incrementally add new facts to FAISS index in O(ΔN) time for subsequent uploads
+        if all_extracted_facts:
+            self.matcher.add_facts(all_extracted_facts)
 
         update_progress(f"Discovered {len(candidates)} cross-document candidate pairs. Classifying relationships...", 0.85)
 

@@ -4,7 +4,9 @@ from typing import Dict, Any, Tuple, Optional
 from app.comparison.normalizer import (
     normalize_time_period,
     extract_numeric_value,
-    are_numerically_equivalent
+    are_numerically_equivalent,
+    classify_unit_dimension,
+    are_units_dimensionally_compatible
 )
 from app.database.models import FactRecord, RelationshipResult, ConfidenceBreakdown
 
@@ -204,6 +206,55 @@ def analyze_scope_relationship(scope_a: str, scope_b: str) -> Tuple[str, float, 
 
     return "DIFFERENT", 0.75, f"Different scopes ('{scope_a}' vs '{scope_b}')"
 
+def check_evidence_similarity_guardrail(
+    fact_a: FactRecord,
+    fact_b: FactRecord,
+    embedder: Optional[Any] = None,
+    threshold: float = 0.58
+) -> Tuple[bool, float, str]:
+    """
+    Computes dense embedding similarity between the source evidence sentences of fact_a and fact_b.
+    Returns (passes_guardrail, similarity_score, explanation).
+    If evidence similarity is below threshold (< 0.58), the two claims stem from disparate contextual
+    disclosures rather than conflicting measurements of the same phenomenon.
+    """
+    ev_a = (fact_a.evidence or "").strip()
+    ev_b = (fact_b.evidence or "").strip()
+    if not ev_a or not ev_b:
+        return True, 1.0, "Missing evidence text; skipping guardrail"
+
+    if embedder is None:
+        try:
+            from app.embeddings.embedder import FactEmbedder
+            embedder = FactEmbedder()
+        except Exception:
+            embedder = None
+
+    if embedder is not None:
+        try:
+            vecs = embedder.embed_texts([ev_a, ev_b])
+            import numpy as np
+            sim = float(np.dot(vecs[0], vecs[1]))
+            if sim < threshold:
+                return False, round(sim, 3), (
+                    f"Evidence semantic similarity ({sim:.2f}) is below contradiction threshold ({threshold}). "
+                    f"The disparate figures originate from distinct contextual disclosures rather than contradictory "
+                    f"measurements of the same metric."
+                )
+            return True, round(sim, 3), f"Evidence semantic similarity ({sim:.2f}) confirms genuine contextual overlap."
+        except Exception as e:
+            logger.debug(f"Evidence similarity check error: {e}")
+
+    # Fallback to token overlap if embedder is unavailable
+    stop_words = {"the", "a", "an", "and", "or", "in", "on", "at", "for", "to", "of", "with", "by", "from", "as", "is", "was"}
+    words_a = set(re.findall(r'\w+', ev_a.lower())) - stop_words
+    words_b = set(re.findall(r'\w+', ev_b.lower())) - stop_words
+    if words_a and words_b:
+        jaccard = len(words_a.intersection(words_b)) / len(words_a.union(words_b))
+        if jaccard < 0.15:
+            return False, round(jaccard, 3), f"Evidence token overlap ({jaccard:.2f}) is too low for contradiction."
+    return True, 0.70, "Passed fallback token overlap check"
+
 def evaluate_fact_relationship(
     fact_a: FactRecord,
     fact_b: FactRecord,
@@ -215,7 +266,7 @@ def evaluate_fact_relationship(
 ) -> RelationshipResult:
     """
     Executes the 6-stage analytical decision pipeline to determine the cross-document
-    relationship between Fact A and Fact B with calibrated composite confidence,
+    relationship between Fact A and Fact B with composite confidence score,
     LLM primary classification, structural sanity guardrails, and explainability.
     """
     # ----------------------------------------------------
@@ -269,6 +320,35 @@ def evaluate_fact_relationship(
         )
 
     # ----------------------------------------------------
+    # Stage 2b: Unit Dimensional Compatibility Guardrail
+    # ----------------------------------------------------
+    if not are_units_dimensionally_compatible(fact_a.unit, fact_b.unit):
+        dim_a = classify_unit_dimension(fact_a.unit)
+        dim_b = classify_unit_dimension(fact_b.unit)
+        breakdown = {
+            "semantic_similarity": round(similarity, 3),
+            "entity_match": round(ent_score, 3),
+            "predicate_match": round(pred_score, 3),
+            "time_compatibility": 0.5,
+            "scope_compatibility": 0.5,
+            "numerical_compatibility": 0.0,
+            "composite_score": round(0.30 * similarity + 0.20 * ent_score + 0.20 * pred_score, 3)
+        }
+        why = (
+            f"Units belong to incompatible physical/economic dimensions: '{fact_a.unit}' ({dim_a}) vs "
+            f"'{fact_b.unit}' ({dim_b}). Quantities from incompatible physical or economic dimensions cannot "
+            f"corroborate, contradict, or reconcile each other."
+        )
+        return RelationshipResult(
+            relationship="UNRELATED",
+            confidence=0.95,
+            reasoning=why,
+            why_explanation=why,
+            why_not_explanation="Rejected CONTRADICTS, CORROBORATES, and RECONCILES: Metrics with incompatible dimensional units represent categorically different physical/accounting quantities.",
+            breakdown=breakdown
+        )
+
+    # ----------------------------------------------------
     # Stage 3: Time & Scope Analysis
     # ----------------------------------------------------
     time_rel, time_score, time_expl = analyze_time_relationship(fact_a.time_period, fact_b.time_period)
@@ -283,7 +363,7 @@ def evaluate_fact_relationship(
     num_score = 1.0 if is_num_equiv else 0.40
 
     # ----------------------------------------------------
-    # Stage 5: Calibrated Composite Confidence Calculation
+    # Stage 5: Composite Confidence Score Calculation
     # ----------------------------------------------------
     composite_confidence = (
         0.30 * min(1.0, max(0.0, similarity)) +
@@ -350,6 +430,20 @@ def evaluate_fact_relationship(
     # Guardrail Check 2: Identical Time & Scope with distinct numbers falsely called CORROBORATES by LLM
     if clean_llm_rel == "CORROBORATES":
         if time_rel in ("IDENTICAL", "UNKNOWN") and scope_rel in ("IDENTICAL", "DEFAULT_IDENTICAL") and not is_num_equiv:
+            ev_ok, ev_sim, ev_expl = check_evidence_similarity_guardrail(fact_a, fact_b, embedder=embedder, threshold=0.58)
+            if not ev_ok:
+                why = (
+                    f"Semantic evidence guardrail overrule: LLM suggested CORROBORATES with mismatched figures, "
+                    f"but source evidence sentences exhibit low semantic alignment ({ev_expl}). Overruled to UNRELATED."
+                )
+                return RelationshipResult(
+                    relationship="UNRELATED",
+                    confidence=0.90,
+                    reasoning=why,
+                    why_explanation=why,
+                    why_not_explanation="Rejected CONTRADICTS: Low evidence similarity indicates distinct disclosures rather than a contradictory measurement.",
+                    breakdown=breakdown
+                )
             why = (
                 f"Structural guardrail overrule: LLM suggested CORROBORATES, but values ({fact_a.value} {fact_a.unit} vs "
                 f"{fact_b.value} {fact_b.unit}) differ for identical period '{normalize_time_period(fact_a.time_period)}' and scope."
@@ -365,7 +459,25 @@ def evaluate_fact_relationship(
             )
 
     # Guardrail Check 3: If LLM gave a recognized relationship that passed all guardrails: ADOPT AS PRIMARY
-    if clean_llm_rel in ("CORROBORATES", "CONTRADICTS", "LIKELY_CONTRADICTION", "RECONCILES", "UNRELATED", "NEEDS_REVIEW"):
+    if clean_llm_rel in ("CORROBORATES", "CONTRADICTS", "LIKELY_CONTRADICTION", "RECONCILES", "TEMPORALLY_DISTINCT", "UNRELATED", "NEEDS_REVIEW"):
+        if clean_llm_rel in ("CONTRADICTS", "LIKELY_CONTRADICTION"):
+            ev_ok, ev_sim, ev_expl = check_evidence_similarity_guardrail(fact_a, fact_b, embedder=embedder, threshold=0.58)
+            if not ev_ok:
+                why = (
+                    f"Semantic evidence guardrail overrule: LLM suggested {clean_llm_rel}, but source evidence "
+                    f"sentences exhibit low semantic alignment ({ev_expl}). "
+                    f"Evidence A: \"{fact_a.evidence[:100]}...\" vs Evidence B: \"{fact_b.evidence[:100]}...\". "
+                    f"Overruled to UNRELATED."
+                )
+                return RelationshipResult(
+                    relationship="UNRELATED",
+                    confidence=0.90,
+                    reasoning=why,
+                    why_explanation=why,
+                    why_not_explanation="Rejected CONTRADICTS: Low evidence similarity indicates distinct disclosures rather than a contradictory measurement.",
+                    breakdown=breakdown
+                )
+
         final_conf = round(max(composite_confidence, float(llm_confidence) if llm_confidence else 0.85), 3)
         why = llm_reasoning or f"Classified as {clean_llm_rel} based on comprehensive cross-document semantic analysis."
         if clean_llm_rel == "CORROBORATES":
@@ -374,6 +486,8 @@ def evaluate_fact_relationship(
             why_not = "Rejected CORROBORATES: Figures are materially divergent under identical reporting conditions."
         elif clean_llm_rel == "RECONCILES":
             why_not = "Rejected CONTRADICTS: Apparent numerical difference is explained by differing context, period, or scope."
+        elif clean_llm_rel == "TEMPORALLY_DISTINCT":
+            why_not = "Rejected CONTRADICTS: Metrics evaluate distinct historical periods rather than conflicting measurements."
         else:
             why_not = f"Alternative relationships rejected due to entity alignment score {ent_score:.2f} and metric score {pred_score:.2f}."
 
@@ -434,6 +548,22 @@ def evaluate_fact_relationship(
                     breakdown=breakdown
                 )
             else:
+                ev_ok, ev_sim, ev_expl = check_evidence_similarity_guardrail(fact_a, fact_b, embedder=embedder, threshold=0.58)
+                if not ev_ok:
+                    why = (
+                        f"Semantic evidence guardrail overrule: Although metrics share predicate '{fact_a.predicate}', "
+                        f"source evidence sentences exhibit low contextual similarity ({ev_expl}). "
+                        f"Evidence A: \"{fact_a.evidence[:100]}...\" vs Evidence B: \"{fact_b.evidence[:100]}...\". "
+                        f"Overruled to UNRELATED."
+                    )
+                    return RelationshipResult(
+                        relationship="UNRELATED",
+                        confidence=0.90,
+                        reasoning=why,
+                        why_explanation=why,
+                        why_not_explanation="Rejected CONTRADICTS: The facts originate from distinct disclosures. They do not conflict because they describe completely different underlying metrics.",
+                        breakdown=breakdown
+                    )
                 why = (
                     f"Direct empirical contradiction: Fact A reports {fact_a.value} {fact_a.unit} whereas "
                     f"Fact B reports {fact_b.value} {fact_b.unit} for the exact same subject ({fact_a.subject}), "
@@ -492,19 +622,22 @@ def evaluate_fact_relationship(
             breakdown=breakdown
         )
 
-    # Case D: Sequential / Multi-Year Progression
+    # Case D: Sequential / Multi-Year Progression (Temporally Distinct)
     if time_rel == "SEQUENTIAL":
+        norm_a = normalize_time_period(fact_a.time_period)
+        norm_b = normalize_time_period(fact_b.time_period)
         why = (
-            f"Metrics represent multi-period historical evolution for {fact_a.subject} ({fact_a.predicate}): "
-            f"period {normalize_time_period(fact_a.time_period)} ({fact_a.value} {fact_a.unit}) vs "
-            f"period {normalize_time_period(fact_b.time_period)} ({fact_b.value} {fact_b.unit})."
+            f"Metrics represent sequential historical progression across distinct time periods for "
+            f"{fact_a.subject} ({fact_a.predicate}): period {norm_a} ({fact_a.value} {fact_a.unit}) vs "
+            f"period {norm_b} ({fact_b.value} {fact_b.unit})."
         )
         why_not = (
-            "Rejected CONTRADICTS: Economic and business figures naturally fluctuate across fiscal cycles. "
-            "Classified as RECONCILES to capture inter-temporal continuity."
+            "Rejected CONTRADICTS: Performance and observational metrics naturally evolve across separate fiscal/time periods. "
+            "Rejected RECONCILES: There is no granular subset (e.g. quarter vs full year) or reporting boundary clash to reconcile; "
+            "the facts describe valid measurements at distinct points in time."
         )
         return RelationshipResult(
-            relationship="RECONCILES",
+            relationship="TEMPORALLY_DISTINCT",
             confidence=composite_confidence,
             reasoning=llm_reasoning or why,
             why_explanation=why,

@@ -44,3 +44,15 @@ def test_are_numerically_equivalent():
     )
     assert is_equiv is True
     assert "Unit-normalized match" in reason
+
+def test_unit_dimensional_compatibility():
+    from app.comparison.normalizer import classify_unit_dimension, are_units_dimensionally_compatible
+    assert classify_unit_dimension("percent") == "PERCENTAGE"
+    assert classify_unit_dimension("INR crore") == "CURRENCY"
+    assert classify_unit_dimension("million INR") == "CURRENCY"
+    assert classify_unit_dimension("tons") == "VOLUME_COUNT"
+
+    # Percentage and currency can NEVER be compatible or contradictory
+    assert are_units_dimensionally_compatible("percent", "million INR") is False
+    assert are_units_dimensionally_compatible("INR crore", "million INR") is True
+    assert are_units_dimensionally_compatible("percent", "%") is True

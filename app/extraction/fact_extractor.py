@@ -23,7 +23,7 @@ class FactExtractor:
     ) -> List[FactRecord]:
         """
         Extracts structured facts from a chunk, verifies evidence grounding against
-        page text, and assigns calibrated confidence and provenance metadata.
+        page text, and assigns confidence and provenance metadata.
         """
         prompt = build_fact_extraction_prompt(chunk.text)
         try:
@@ -170,67 +170,122 @@ class FactExtractor:
             fin_match = re.search(r'(?:₹|INR|Rs\.?|\$|€|£)\s*([\d,]+(?:\.\d+)?)\s*(Cr|crore|million|mn|billion|bn|lakh)?', s, re.IGNORECASE)
             pct_match = re.search(r'([\d]+(?:\.\d+)?)\s*(%|per\s*cent|percent)', s, re.IGNORECASE)
             vol_match = re.search(r'([\d,]+(?:\.\d+)?)\s*(Mn|million|Bn|billion|K)\s*(?:Tons|tons|shipments|parcels)', s, re.IGNORECASE)
-
-            metric_name = None
-            s_lower = s.lower()
-            if "revenue from services" in s_lower:
-                metric_name = "revenue from services"
-            elif "revenue from operation" in s_lower or "revenue from contract" in s_lower:
-                metric_name = "revenue from operations"
-            elif "revenue" in s_lower and any(kw in s_lower for kw in ["cr", "mn", "million", "billion", "₹", "$", "€", "inr"]):
-                metric_name = "revenue from operations"
-            elif "adj" in s_lower and "ebitda" in s_lower:
-                metric_name = "adjusted EBITDA"
-            elif "ebitda" in s_lower:
-                metric_name = "EBITDA"
-            elif "real gdp" in s_lower or "gdp growth" in s_lower or "economic growth" in s_lower or "gdp is estimated" in s_lower or "gdp is projected" in s_lower:
-                metric_name = "real GDP growth rate"
-            elif "inflation" in s_lower or "cpi" in s_lower:
-                metric_name = "CPI inflation"
-            elif "express parcel" in s_lower or "parcel shipment" in s_lower:
-                metric_name = "express parcel shipments"
-            elif "freight tonnage" in s_lower or "ptl" in s_lower:
-                metric_name = "PTL freight tonnage"
-            elif "current account deficit" in s_lower or "cad" in s_lower:
-                metric_name = "current account deficit"
-            else:
-                # Generic metric extraction: extract noun phrase preceding the numeric value
-                num_anchor = re.search(r'([A-Za-z\s]{3,35})\s+(?:of|is|was|stood at|reached|reported at|recorded at|grew by|declined by|amounted to|totaled|at)?\s*(?:₹|\$|€|£|INR|USD)?\s*[\d,]+', s)
-                if num_anchor:
-                    cand_phrase = num_anchor.group(1).strip()
-                    clean_tokens = [w for w in cand_phrase.split() if w.lower() not in {"reported", "recorded", "announced", "posted", "clocked", "the", "a", "an", "for", "in"}]
-                    if clean_tokens and len(" ".join(clean_tokens)) >= 4:
-                        metric_name = " ".join(clean_tokens)
+            sci_match = re.search(r'([\d,]+(?:\.\d+)?)\s*(ppm|ppb|°C|deg\s*C|GW|gigawatts?|million\s*sq\s*km|sq\s*km|sq\s*mi)\b', s, re.IGNORECASE)
 
             val = None
             unit = ""
 
-            if metric_name:
-                if fin_match:
-                    val = fin_match.group(1).replace(",", "")
-                    unit_raw = (fin_match.group(2) or "INR").strip().lower()
-                    if "cr" in unit_raw:
-                        unit = "INR crore"
-                    elif "million" in unit_raw or "mn" in unit_raw:
-                        unit = "million INR"
-                    elif "bn" in unit_raw or "billion" in unit_raw:
-                        unit = "billion INR"
-                    else:
-                        unit = "INR"
-                elif pct_match:
-                    val = pct_match.group(1)
-                    unit = "percent"
-                elif vol_match:
-                    val = vol_match.group(1).replace(",", "")
-                    unit = f"{vol_match.group(2)} {vol_match.group(0).split()[-1]}"
+            # Determine value and unit first to ensure dimensional predicate alignment
+            if fin_match:
+                val = fin_match.group(1).replace(",", "")
+                unit_raw = (fin_match.group(2) or "INR").strip().lower()
+                if "cr" in unit_raw:
+                    unit = "INR crore"
+                elif "million" in unit_raw or "mn" in unit_raw:
+                    unit = "million INR"
+                elif "bn" in unit_raw or "billion" in unit_raw:
+                    unit = "billion INR"
+                else:
+                    unit = "INR"
+            elif pct_match:
+                val = pct_match.group(1)
+                unit = "percent"
+            elif vol_match:
+                val = vol_match.group(1).replace(",", "")
+                unit = f"{vol_match.group(2)} {vol_match.group(0).split()[-1]}"
+            elif sci_match:
+                val = sci_match.group(1).replace(",", "")
+                unit_raw = sci_match.group(2).strip()
+                if unit_raw.lower() in ["°c", "deg c"]:
+                    unit = "°C"
+                else:
+                    unit = unit_raw
+
+            if not val:
+                continue
+
+            metric_name = None
+            s_lower = s.lower()
+
+            # 1. Primary: Generic Domain-Agnostic Metric Anchor Extraction
+            # Extracts noun phrase preceding the value across arbitrary domains (medical, science, legal, finance)
+            anchor_match = re.search(
+                r'\b(?:of|is|was|stood at|reached|reported at|recorded at|grew by|declined by|amounted to|totaled|at|rose to|dropped to|averaged)\b\s*(?:₹|\$|€|£|INR|USD)?\s*[\d,]+|(?<=\s)(?:₹|\$|€|£|INR|USD)?\s*[\d,]+',
+                s,
+                re.IGNORECASE
+            )
+            generic_metric = None
+            if anchor_match:
+                pre_text = s[:anchor_match.start()].strip()
+                words = re.findall(r'\b[a-zA-Z0-9\-_%°/]+\b', pre_text)
+                if words:
+                    cand_words = words[-5:]
+                    stop_words = {
+                        "reported", "recorded", "announced", "posted", "clocked",
+                        "the", "a", "an", "for", "in", "by", "to", "during",
+                        "its", "our", "their", "confirmed", "observations", "and", "that", "per"
+                    }
+                    clean_tokens = [w for w in cand_words if w.lower() not in stop_words]
+                    if clean_tokens and len(" ".join(clean_tokens)) >= 3:
+                        generic_metric = " ".join(clean_tokens)
+
+            if unit == "percent":
+                # Percentage metrics must never be conflated with aggregate currency totals
+                if "customer" in s_lower:
+                    metric_name = "customer revenue concentration"
+                elif "fair value" in s_lower:
+                    metric_name = "fair value loss on financial instruments"
+                elif "real gdp" in s_lower or "gdp growth" in s_lower or "economic growth" in s_lower or "gdp is estimated" in s_lower:
+                    metric_name = "real GDP growth rate"
+                elif "inflation" in s_lower or "cpi" in s_lower:
+                    metric_name = "CPI inflation"
+                elif "ptl" in s_lower or "freight" in s_lower:
+                    metric_name = "PTL freight revenue contribution"
+                elif "growth" in s_lower:
+                    metric_name = "revenue growth rate"
+                elif "margin" in s_lower or "ebitda" in s_lower:
+                    metric_name = "operating margin percentage"
+                elif "share" in s_lower or "contribut" in s_lower or "portion" in s_lower:
+                    metric_name = "revenue contribution share"
+                elif generic_metric:
+                    metric_name = generic_metric if any(k in generic_metric.lower() for k in ["rate", "margin", "share", "percent", "ratio", "efficacy"]) else generic_metric + " percentage"
+                else:
+                    metric_name = "percentage disclosure"
+            else:
+                # Absolute currency, volume, or count metrics
+                if "revenue from services" in s_lower:
+                    metric_name = "revenue from services"
+                elif "revenue from operation" in s_lower or "revenue from contract" in s_lower:
+                    metric_name = "revenue from operations"
+                elif "revenue" in s_lower and any(kw in s_lower for kw in ["cr", "mn", "million", "billion", "₹", "$", "€", "inr"]):
+                    metric_name = "revenue from operations"
+                elif "adj" in s_lower and "ebitda" in s_lower:
+                    metric_name = "adjusted EBITDA"
+                elif "ebitda" in s_lower:
+                    metric_name = "EBITDA"
+                elif "express parcel" in s_lower or "parcel shipment" in s_lower:
+                    metric_name = "express parcel shipments"
+                elif "freight tonnage" in s_lower or "ptl" in s_lower:
+                    metric_name = "PTL freight tonnage"
+                elif "current account deficit" in s_lower or "cad" in s_lower:
+                    metric_name = "current account deficit"
+                elif generic_metric:
+                    metric_name = generic_metric
+                else:
+                    metric_name = "unspecified metric"
 
             if metric_name and val:
                 period = ""
-                fy_match = re.search(r'\b(Q[1-4]\s*FY\s*\d{2,4}|Q[1-4]\s*20\d{2}-\d{2}|FY\s*\d{2,4}|20\d{2}-\d{2}|20\d{2}/\d{2})\b', s, re.IGNORECASE)
+                fy_match = re.search(r'\b(Q[1-4]\s*FY\s*\d{2,4}|Q[1-4]\s*20\d{2}-\d{2}|FY\s*\d{2,4}|20\d{2}-\d{2}|20\d{2}/\d{2}|(?:19|20)\d{2})\b', s, re.IGNORECASE)
                 if fy_match:
                     period = fy_match.group(0)
 
-                scope = "consolidated" if "consolidated" in s_lower else ("standalone" if "standalone" in s_lower else "")
+                scope = ""
+                if any(k in s_lower for k in ["financial", "statement", "revenue", "ebitda", "pat", "profit", "balance sheet", "basis"]):
+                    if "consolidated" in s_lower:
+                        scope = "consolidated"
+                    elif "standalone" in s_lower:
+                        scope = "standalone"
 
                 # Generic subject resolution: local sentence proper-noun candidate or dominant chunk subject
                 sentence_entities = extract_entities(s)
@@ -257,6 +312,9 @@ class FactExtractor:
                 else:
                     evidence_status, score = verify_evidence(s, chunk.text)
 
+                # Heuristic fallback trust score is set to 0.65 to reflect lower certainty vs 0.95 LLM
+                heuristic_trust_score = 0.65
+
                 fact_dict = {
                     "subject": subject,
                     "predicate": metric_name,
@@ -268,7 +326,7 @@ class FactExtractor:
                     "evidence": s,
                     "evidence_status": evidence_status,
                     "extraction_method": "HEURISTIC",
-                    "confidence": score
+                    "confidence": heuristic_trust_score
                 }
 
                 facts.append(
@@ -286,7 +344,7 @@ class FactExtractor:
                         evidence=s,
                         evidence_status=evidence_status,
                         extraction_method="HEURISTIC",
-                        confidence=score,
+                        confidence=heuristic_trust_score,
                         fact_json=json.dumps(fact_dict, ensure_ascii=False)
                     )
                 )

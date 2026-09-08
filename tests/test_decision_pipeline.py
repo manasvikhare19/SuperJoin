@@ -234,3 +234,147 @@ def test_llm_guardrail_catches_false_contradiction():
     # Structural guardrail intervenes and changes to RECONCILES
     assert res.relationship == "RECONCILES"
     assert "Structural guardrail reconciliation" in res.why_explanation
+
+def test_unit_dimensional_guardrail_prevents_false_contradiction():
+    fact_revenue = FactRecord(
+        id=1, document_id=1, page=22, subject="Delhivery", predicate="revenue from operations",
+        value="81415.38", unit="million INR", time_period="FY2024", scope="consolidated",
+        evidence="Consolidated revenue from operations for FY24 was 81,415.38 million INR.", fact_json="{}"
+    )
+    fact_concentration = FactRecord(
+        id=2, document_id=1, page=138, subject="Delhivery", predicate="revenue from operations", # mislabeled by heuristic
+        value="10.82", unit="percent", time_period="FY2024", scope="consolidated",
+        evidence="Revenue from one customer exceeded 10% of total revenue amounting to 10.82%.", fact_json="{}"
+    )
+
+    res = evaluate_fact_relationship(
+        fact_a=fact_revenue,
+        fact_b=fact_concentration,
+        similarity=0.75
+    )
+    assert res.relationship == "UNRELATED"
+    assert "incompatible physical/economic dimensions" in res.reasoning
+    assert "Rejected CONTRADICTS" in res.why_not_explanation
+
+def test_evidence_guardrail_prevents_false_contradiction():
+    # Both are percentages for Delhivery FY2024, but evidence proves distinct disclosures
+    fact_customer = FactRecord(
+        id=1, document_id=1, page=138, subject="Delhivery", predicate="percentage share",
+        value="10.82", unit="percent", time_period="FY2024", scope="consolidated",
+        evidence="During the year ended March 31, 2024, revenue from one customer exceeded 10% of total revenue amounting to 10.82%.", fact_json="{}"
+    )
+    fact_fair_value = FactRecord(
+        id=2, document_id=1, page=218, subject="Delhivery", predicate="percentage share",
+        value="89.53", unit="percent", time_period="FY2024", scope="consolidated",
+        evidence="The group has recognized a net fair value loss on financial instruments at fair value through profit or loss amounting to 89.53%.", fact_json="{}"
+    )
+
+    res = evaluate_fact_relationship(
+        fact_a=fact_customer,
+        fact_b=fact_fair_value,
+        similarity=0.70
+    )
+    assert res.relationship == "UNRELATED"
+    assert "Semantic evidence guardrail overrule" in res.reasoning
+    assert "below contradiction threshold" in res.reasoning
+
+def test_evidence_guardrail_allows_true_contradiction():
+    # Both discuss PTL freight services share for Delhivery FY24 with conflicting numbers
+    fact_a = FactRecord(
+        id=1, document_id=1, page=6, subject="Delhivery", predicate="PTL freight revenue contribution",
+        value="29.82", unit="percent", time_period="FY2024", scope="consolidated",
+        evidence="PTL freight services revenue contributed 29.82% of total express logistics revenue in FY24.", fact_json="{}"
+    )
+    fact_b = FactRecord(
+        id=2, document_id=2, page=12, subject="Delhivery", predicate="PTL freight revenue contribution",
+        value="35.50", unit="percent", time_period="FY2024", scope="consolidated",
+        evidence="PTL freight services revenue contributed 35.50% of total express logistics revenue in FY24.", fact_json="{}"
+    )
+
+    res = evaluate_fact_relationship(
+        fact_a=fact_a,
+        fact_b=fact_b,
+        similarity=0.92
+    )
+    assert res.relationship == "CONTRADICTS"
+    assert "Direct empirical contradiction" in res.reasoning
+
+def test_adversarial_high_lexical_overlap_distinct_dimensions():
+    """
+    Adversarial test: High lexical overlap (Delhivery, operations, numbers)
+    with incompatible physical dimensions (Currency vs Count) must NEVER
+    falsely contradict or corroborate.
+    """
+    fact_rev = FactRecord(
+        id=1, document_id=1, page=22, subject="Delhivery", predicate="revenue from operations",
+        value="81415.38", unit="million INR", time_period="FY2024", scope="consolidated",
+        evidence="Consolidated revenue from operations for FY24 reached 81,415.38 million INR.", fact_json="{}"
+    )
+    fact_count = FactRecord(
+        id=2, document_id=1, page=45, subject="Delhivery", predicate="operational team count",
+        value="57000", unit="employees", time_period="FY2024", scope="consolidated",
+        evidence="Delhivery deployed an operational team count of 57,000 employees nationwide.", fact_json="{}"
+    )
+
+    res = evaluate_fact_relationship(
+        fact_a=fact_rev,
+        fact_b=fact_count,
+        similarity=0.72
+    )
+    assert res.relationship == "UNRELATED"
+    assert "incompatible physical/economic dimensions" in res.reasoning
+    assert "Rejected CONTRADICTS" in res.why_not_explanation
+
+def test_adversarial_ratio_vs_absolute_total():
+    """
+    Adversarial test: Percentage metric vs Absolute currency metric
+    must be recognized as dimensionally distinct, even if subject and predicate overlap.
+    """
+    fact_ebitda_margin = FactRecord(
+        id=1, document_id=1, page=5, subject="Delhivery", predicate="adjusted EBITDA margin",
+        value="12.5", unit="percent", time_period="FY2024", scope="consolidated",
+        evidence="Adjusted EBITDA margin expanded by 120 bps to 12.5% for the full year.", fact_json="{}"
+    )
+    fact_ebitda_abs = FactRecord(
+        id=2, document_id=1, page=5, subject="Delhivery", predicate="adjusted EBITDA",
+        value="1250", unit="crore INR", time_period="FY2024", scope="consolidated",
+        evidence="Adjusted EBITDA stood at 1,250 crore INR across consolidated network operations.", fact_json="{}"
+    )
+
+    res = evaluate_fact_relationship(
+        fact_a=fact_ebitda_margin,
+        fact_b=fact_ebitda_abs,
+        similarity=0.78
+    )
+    assert res.relationship == "UNRELATED"
+    assert "incompatible physical/economic dimensions" in res.reasoning
+    assert "Rejected CONTRADICTS" in res.why_not_explanation
+
+def test_temporally_distinct_sequential_periods():
+    """
+    Ensures multi-year sequential periods (FY23 vs FY24) are classified as
+    TEMPORALLY_DISTINCT, rather than falsely calling them RECONCILES.
+    """
+    fact_fy23 = FactRecord(
+        id=1, document_id=1, page=4, subject="Delhivery", predicate="revenue from services",
+        value="7225", unit="crore INR", time_period="FY2023", scope="consolidated",
+        evidence="Revenue from services in FY23 was 7,225 crore INR.", fact_json="{}"
+    )
+    fact_fy24 = FactRecord(
+        id=2, document_id=2, page=4, subject="Delhivery", predicate="revenue from services",
+        value="8142", unit="crore INR", time_period="FY2024", scope="consolidated",
+        evidence="Revenue from services in FY24 expanded to 8,142 crore INR.", fact_json="{}"
+    )
+
+    res = evaluate_fact_relationship(
+        fact_a=fact_fy23,
+        fact_b=fact_fy24,
+        similarity=0.88
+    )
+    assert res.relationship == "TEMPORALLY_DISTINCT"
+    assert "distinct time periods" in res.why_explanation.lower() or "sequential" in res.why_explanation.lower()
+    assert "Rejected CONTRADICTS" in res.why_not_explanation
+    assert "Rejected RECONCILES" in res.why_not_explanation
+
+
+

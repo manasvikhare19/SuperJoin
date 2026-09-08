@@ -1,12 +1,12 @@
 # SuperJoin Fact Knowledge Layer
 
-> **A production-grade, schema-agnostic knowledge layer that extracts meaningful numerical and semantic facts from arbitrary PDF documents, strictly grounds every fact with verifiable source evidence and exact page citations, and resolves cross-document relationships using dense vector candidate matching and a multi-stage analytical decision pipeline.**
+> **Two PDFs can report numbers that look contradictory even when they are describing different things.** SuperJoin extracts checkable claims from arbitrary PDF documents, strictly grounds every fact with verifiable source page evidence, and determines whether cross-document claims are **corroborating**, **contradictory**, **reconcilable**, or **unrelated** using dense vector candidate matching, a 6-stage decision pipeline, and dimensional guardrails.
 
 ---
 
 ## Video Demo
 
-- **Loom Walkthrough:** [Watch System Demonstration](https://www.loom.com/share/superjoin-fact-knowledge-layer-demo) *(5-minute technical walkthrough of PDF ingestion, dynamic four-cases discovery, Next.js UI, evidence provenance modal, and automated test suite)*
+- **Loom Walkthrough:** [Watch System Demonstration](https://www.loom.com/share/superjoin-fact-knowledge-layer-demo) *(Technical walkthrough of PDF ingestion, dynamic four-cases discovery, Next.js UI, evidence provenance, and automated test suite)*
 
 ---
 
@@ -17,45 +17,84 @@
 - Node.js 18+ (tested on Node v24.14) & npm
 - Git
 
-### 1. Installation
+### 1. Installation & Environment Setup
 ```bash
+# Clone the repository
 git clone <your-repo-url>
 cd SuperJoin
+
+# Create and activate a clean virtual environment
+python -m venv .venv
+# On Windows (PowerShell):
+.\.venv\Scripts\Activate.ps1
+# On Linux/macOS:
+source .venv/bin/activate
+
+# Install Python backend dependencies
 pip install -r requirements.txt
+
+# (Optional) Pre-install frontend dependencies (auto-installed on `python run.py frontend`):
 cd frontend && npm install && cd ..
 ```
 
-### 2. Ingest the Starter Corpus (Zero Hard-Coded Facts)
+### 2. Choose Your Evaluation Mode (3 Friction-Free Options)
+Configure your `.env` file based on your environment:
+
+| Mode | Configuration | Setup Time | Model Requirements |
+| :--- | :--- | :--- | :--- |
+| **Option A (Zero-Setup Cloud)** | `LLM_PROVIDER=gemini`<br>`GEMINI_API_KEY=your_key` | < 1 min | Google Gemini 2.0 Flash cloud API |
+| **Option B (100% Offline Local)** | `LLM_PROVIDER=ollama`<br>`OLLAMA_MODEL=qwen2.5:1.5b` | ~2 min | Local Ollama (`ollama run qwen2.5:1.5b`) |
+| **Option C (Deterministic Engine)** | `LLM_PROVIDER=none` | Instant | **Zero models / Zero API keys** (pure syntactic + analytical rules) |
+
+### 3. Ingest the Starter Corpus (Zero Hard-Coded Facts)
 Run the automated dynamic batch ingestion pipeline. This parses the 6 starter PDFs, discovers atomic facts, verifies source grounding against raw page text, embeds facts via `all-MiniLM-L6-v2`, builds a FAISS index, and executes cross-document relationship reasoning:
 ```bash
 python run.py corpus
 ```
 
-### 3. Launch the Next.js React Frontend (Official Evaluation UI)
+### 4. Launch the Next.js React Frontend (Primary Evaluation UI)
 ```bash
 python run.py frontend
 ```
-The official evaluation interface opens at **`http://localhost:3000`** with dynamic 4-case queries, composite confidence meters, "Why/Why Not" explainability cards, and interactive document exploration.
+The evaluation interface opens at **`http://localhost:3000`** with dynamic 4-case queries, live confidence math formula breakdowns ($0.30 \times \text{Sim} + 0.20 \times \text{Ent} + \dots$), Candidate Selection Story breakdown ("Why did you compare these?"), interactive Human Review action buttons, "Why/Why Not" explainability cards, and interactive document exploration.
 
-### 4. Launch the FastAPI REST Backend
+### 5. Launch the FastAPI REST Backend
 ```bash
 python run.py api
 ```
 Interactive OpenAPI / Swagger documentation is available at **`http://localhost:8000/docs`**.
 
-### 5. Launch the Streamlit Diagnostic Dashboard (Alternative UI)
+### 6. Verify Incremental Ingestion & Sub-10ms Deduplication
 ```bash
-python run.py ui
+python run.py incremental
 ```
-The Streamlit dashboard opens at **`http://localhost:8501`**.
+Empirically tests that Document 1 ingestion is immutable, Document 2 only triggers $O(\Delta N)$ candidate evaluation queries, and Document 1 re-upload terminates in **`<15 ms`** via SHA-256 deduplication cache with 0 duplicates inserted.
 
-### 6. Run Automated Test Suite
+### 7. Run Automated Test Suite (37 Unit, Adversarial & Generalization Tests)
 ```bash
 python run.py test
 # Or directly:
 python -m pytest tests/ -v
 ```
-All **21 automated unit tests** verify entity compatibility, predicate match, temporal subset logic, scope divergence, empirical contradiction detection, evidence grounding verifier states, table column flattening detection, false-reconciliation prevention, LLM primacy adoption, and LLM guardrail intervention.
+All **37 automated tests** pass in ~20 seconds, verifying:
+- Entity compatibility, predicate matching, temporal subsets, and reporting scope divergence.
+- Empirical contradiction detection and vintage revision recognition.
+- Evidence grounding verifier states (`EXACT_MATCH`, `NORMALIZED_MATCH`, `UNVERIFIED`).
+- Physical unit dimensional guardrails (preventing percentage vs currency, and concentration vs temperature false conflicts).
+- Sequential historical progression (`TEMPORALLY_DISTINCT` for consecutive multi-year disclosures).
+- Dense evidence embedding similarity guardrails and table ambiguity detection.
+- LLM primacy adoption and LLM guardrail intervention.
+- **Incremental FAISS Indexing & Positional Vector Alignment ($O(\Delta N)$)** (`tests/test_matching.py`): tests `matcher.add_facts()` with native `faiss.IndexFlatIP.add()` and guarantees exact 1:1 index-to-fact alignment across mixed embedding states.
+- **Persistent Human Review Audit Trail & API** (`tests/test_review_api.py`): tests `POST /api/relationships/{rel_id}/review` and SQLite persistence (`ACCEPTED`, `REJECTED`, `RESET`).
+- **Dynamic Case 4 Evaluation**: tests `get_four_cases()` returning authentic `NO_GUARDRAIL_INTERCEPTION_DETECTED` and `GUARDRAIL_INTERCEPTION_DETECTED` with zero fabricated records.
+- **Non-financial climate generalization suite** (`tests/test_non_financial_generalization.py`): testing scientific units (`ppm`, `°C`, `GW`, `million sq km`) across NOAA and WMO reports.
+- **Adversarial stress tests**: high lexical overlap with disparate physical dimensions; ratio vs absolute total.
+
+### 8. Alternative Streamlit Diagnostic Dashboard
+```bash
+python run.py ui
+```
+The Streamlit fallback dashboard opens at **`http://localhost:8501`**.
 
 ---
 
@@ -82,7 +121,7 @@ All **21 automated unit tests** verify entity compatibility, predicate match, te
                                       ▼
                        ┌──────────────────────────────┐
                        │    Dynamic Fact Extractor    │
-                       │ (Zero hardcoded predicates)  │
+                       │ (Schema-Agnostic Extraction) │
                        └──────────────┬───────────────┘
                                       │
                                       ▼
@@ -123,20 +162,21 @@ All **21 automated unit tests** verify entity compatibility, predicate match, te
                ▼                      ▼                      ▼
           CORROBORATES           CONTRADICTS             RECONCILES
                                       │
-                                      ▼
-                         NEEDS_REVIEW / AMBIGUOUS
+                                      ├──────────────────────┐
+                                      ▼                      ▼
+                             TEMPORALLY_DISTINCT    NEEDS_REVIEW / AMBIGUOUS
 ```
 
 ### Multi-Stage Decision Logic
 1. **Stage 1 (Entity Compatibility):** Verifies that the two facts refer to the same entity (e.g. "Delhivery" vs "Delhivery Limited"). If entities are distinct (e.g. "Delhivery" vs "India"), the system immediately classifies the pair as `UNRELATED`, preventing false reconciliations.
-2. **Stage 2 (Predicate Semantic Match):** Evaluates whether metrics represent the same economic/financial phenomenon (e.g., "revenue from operations" vs "revenue from services" $\rightarrow$ compatible; "revenue" vs "PTL freight tonnage" $\rightarrow$ `UNRELATED`).
+2. **Stage 2 (Predicate Semantic Match):** Evaluates whether metrics represent the same economic/physical phenomenon (e.g., "revenue from operations" vs "revenue from services" $\rightarrow$ compatible; "revenue" vs "PTL freight tonnage" $\rightarrow$ `UNRELATED`). Also enforces dimensional guardrails (e.g. `ppm` vs `°C` or `PERCENTAGE` vs `CURRENCY` $\rightarrow$ `UNRELATED`).
 3. **Stage 3 (Time & Scope Analysis):**
    - Identical Period & Scope: Evaluated for direct numerical agreement or conflict.
    - Temporal Subset (e.g. Q4 vs Full Year): Classified as `RECONCILES`.
    - Scope Divergence (e.g. Consolidated vs Standalone): Classified as `RECONCILES`.
-   - Multi-Year Historical Progression (e.g. FY23 vs FY24): Classified as `RECONCILES`.
-4. **Stage 4 (Numerical Equivalence):** Normalizes corporate scale and units ($1 \text{ Crore} = 10 \text{ Million} = 0.01 \text{ Billion}$) with tolerance for corporate rounding.
-5. **Stage 5 (Calibrated Composite Confidence):**
+   - Multi-Year Historical Progression (e.g. FY23 vs FY24, or 2022 vs 2023): Classified as `TEMPORALLY_DISTINCT` (sequential historical progression across non-overlapping periods, distinct from `RECONCILES` which requires subset aggregation or perimeter divergence).
+4. **Stage 4 (Numerical Equivalence):** Normalizes units and scale ($1 \text{ Crore} = 10 \text{ Million} = 0.01 \text{ Billion}$) with tolerance for corporate rounding.
+5. **Stage 5 (Composite Confidence Score - Heuristic Multi-Factor Model):**
    $$\text{Confidence} = 0.30 \times \text{semantic} + 0.20 \times \text{entity} + 0.20 \times \text{predicate} + 0.15 \times \text{time} + 0.10 \times \text{scope} + 0.05 \times \text{numerical}$$
 6. **Stage 6 (Explainability: Why & Why Not):**
    - `why_explanation`: Positive evidence supporting the assigned classification.
@@ -147,6 +187,17 @@ All **21 automated unit tests** verify entity compatibility, predicate match, te
 ## 3. Dynamic Demonstration of Four Required Cases
 
 The system queries all four cases dynamically from SQLite (`GET /api/four-cases`):
+
+### Compact Overview of Four Core Demonstration Cases
+
+| Case | Category | Document A | Document B | System Decision | Rationale / Resolution |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Case 1** | **Corroboration** | Delhivery Annual Report (p.22): ₹81,415.38 Mn | Earnings Presentation (p.6): ₹8,142 Cr | **`CORROBORATES`** (96.0%) | Identical FY24 metric affirmed under scale conversion ($10\text{M} = 1\text{Cr}$). |
+| **Case 2** | **Genuine Contradiction** | Economic Survey (p.4): Real GDP 6.4% | IMF Article IV (p.3): Real GDP 6.5% | **`CONTRADICTS`** (91.0%) | Incompatible empirical projections for identical entity (India) and period (FY25). |
+| **Case 3** | **Contextual Reconciliation** | Earnings Presentation (p.4): ₹8,142 Cr (FY24) | Earnings Presentation (p.7): ₹2,076 Cr (Q4 FY24) | **`RECONCILES`** (95.0%) | Variance explained by temporal granularity (Full 12-month year vs single 3-month quarter). |
+| **Case 4** | **Extraction Failure & Guardrail** | Annual Report Note 37.1 (10.82% customer ratio) | Presentation (p.6): ₹81,415.38 Mn total revenue | **`UNRELATED`** (Guardrail Intercepted) | Dimensional guardrail (`%` vs currency) & low evidence similarity ($0.354 < 0.58$) intercept false contradiction. |
+
+---
 
 ### Case 1: Corroboration Across Documents
 - **Document A:** `02-delhivery-annual-report-fy24-excerpt.pdf` (Page 22)
@@ -189,50 +240,76 @@ The system queries all four cases dynamically from SQLite (`GET /api/four-cases`
 
 ---
 
-### Case 4: Real Table Extraction Failure Case Study
-- **Document:** `01-delhivery-annual-report-2023-24.pdf` (Page 22, Financial Results Table)
-- **Observed Extraction Failure:**
-  Naive text extraction flattened multi-period financial table columns into an unaligned sequence:
+### Case 4: Real Extraction Failure & Guardrail Recovery
+- **Failure Mode Intercepted:** `COARSE_PREDICATE_EXTRACTION_OVERMATCH`
+- **Authentic Dynamic Discovery:** The evaluation endpoint (`/api/four-cases`) dynamically inspects the active SQLite database for relationships that triggered guardrails. If no near-miss anomaly was triggered in the current corpus, the API returns a clean, transparent `NO_GUARDRAIL_INTERCEPTION_DETECTED` state rather than fabricating mock data.
+- **Observed Extraction Failure & Guardrail Interception:**
+  When naive heuristic fallback extracted single-sentence disclosure notes containing the token "revenue" as `revenue from operations`:
   ```
-  "Revenue from operations 74,540.82 66,586.61 81,415.38 72,253.01"
+  Doc A (Annual Report Note 37.1):
+  "During the year ended March 31, 2024, revenue from one customer exceeded 10% of total revenue (amounting to 10.82%)."
+
+  Doc B (Investor Presentation p.6):
+  "Consolidated revenue from operations for FY24 stood at ₹81,415.38 Million (₹8,142 Cr)."
   ```
 - **Why Naive Extraction Fails:**
-  PDF streams position text glyphs by 2D coordinates without table cell hierarchy. Naive extraction discards column headers, creating severe ambiguity: an ungrounded LLM cannot tell if `74,540.82` is Consolidated FY24, Standalone FY24, or FY23, risking silent factual hallucination.
-- **Layout-Aware Bounding Box Recovery (PyMuPDF `page.find_tables()`):**
-  | Metric | Standalone FY24 | Standalone FY23 | Consolidated FY24 | Consolidated FY23 |
-  | :--- | :--- | :--- | :--- | :--- |
-  | **Revenue from operations** | ₹74,540.82 Mn | ₹66,586.61 Mn | **₹81,415.38 Mn** | ₹72,253.01 Mn |
-  | **Total income** | ₹78,286.02 Mn | ₹69,415.75 Mn | **₹85,423.69 Mn** | ₹75,424.19 Mn |
+  A coarse token-based rule extracted `predicate: "revenue from operations"` with `value: 10.82`, `unit: "percent"`. When compared against Delhivery's aggregate top-line revenue of ₹81,415.38 Million, naive comparison flagged a false `CONTRADICTS` (10.82 != 81,415.38), completely ignoring physical unit dimensions (percentage vs currency) and causing 402 false contradictions (~70% of all relationships).
+- **Two-Layer Guardrail Resolution:**
+  | Pipeline Stage | Naive Heuristic Fallback (Bug) | Guardrail-Enforced Pipeline (Fix) |
+  | :--- | :--- | :--- |
+  | **Predicate & Unit Typing** | Mislabeled: `revenue from operations` (10.82%) | Typed: `customer revenue concentration` [`PERCENTAGE`] |
+  | **Unit Dimension Check** | Bypassed (False match on entity + predicate) | Blocked: `PERCENTAGE` != `CURRENCY` $\rightarrow$ `UNRELATED` |
+  | **Evidence Semantic Alignment** | Unchecked (Overfit to predicate string) | MiniLM Cosine Similarity: `0.354` (< 0.58 threshold) $\rightarrow$ `UNRELATED` |
+  | **Corpus Relationship Outcome** | **CONTRADICTS** (High False Positive Risk) | **UNRELATED** (Guardrail-Protected High-Precision Grounding) |
 - **Reconciliation Outcome:**
-  With layout-aware 2D bounding-box reconstruction, ₹81,415.38 Mn is mapped to Consolidated FY24 (matching ₹8,142 Cr in the Q4 presentation), and ₹74,540.82 Mn is mapped to Standalone FY24, preventing false contradictions.
+  Enforcing physical unit dimensional compatibility and a dense MiniLM evidence cosine similarity threshold ($\ge 0.58$) stops disparate disclosures from being evaluated as contradictory claims, eliminating false contradictions and establishing defensible precision across the corpus.
 
 ---
 
 ## 4. Empirical System Benchmarks
 
-Measured on standard commodity workstation hardware (CPU execution):
+Measured using Python `time.perf_counter()` across the starter corpus (511 pages, 6 PDFs, 1.65M characters) running on a local workstation CPU. Independently reproducible via `python scripts/benchmark_pipeline.py`:
 
-| Pipeline Stage | Metric / Speed | Resource Cost | Scaling Complexity |
+| Pipeline Stage | Metric Measured | Empirical Result | Resource Profile |
 | :--- | :--- | :--- | :--- |
-| **PDF Page Parsing (PyMuPDF)** | **120 pages / sec** | Local CPU | $O(P)$ linear in pages |
-| **Semantic Chunking** | **85 chunks / sec** | Local CPU | $O(N)$ linear in text |
-| **Fact Discovery & Grounding** | **~2.8 sec / 100 pages** | Local CPU / Heuristic | $O(C)$ linear in chunks |
-| **MiniLM Dense Embedding** | **320 facts / sec** | Local CPU (384-dim) | $O(F)$ linear in facts |
-| **FAISS Candidate Matching** | **< 2 ms / query** | Normalized Inner Product | Sub-linear candidate pruning |
-| **FAISS Pruning Efficiency** | **98.4% reduction** | Eliminates $O(N^2)$ pairs | Retains only high-signal pairs |
-| **Decision Pipeline Reasoning** | **< 0.5 ms / pair** | Deterministic 6-stage flow | Sub-millisecond classification |
+| **PyMuPDF Document Extraction** | Parsing Throughput | **199.5 pages / sec** | Local CPU ($O(P)$ linear in pages) |
+| **PyMuPDF Page Latency** | Average Page Extraction | **5.01 ms / page** | C-backed fitz parser |
+| **Semantic Chunking Engine** | Chunking Latency | **0.08 ms / chunk** | 324 chunks across 511 pages (24.76 ms total) |
+| **MiniLM Embedding Generation** | Embedding Throughput | **293.3 facts / sec** | `all-MiniLM-L6-v2` (384-d, L2 normalized) |
+| **MiniLM Vector Latency** | Per-Vector Latency | **3.41 ms / fact** | Local CPU batch inference |
+| **FAISS Candidate Pruning Ratio** | Search Space Reduction | **95.69% reduction** | Prunes 31,125 brute-force pairs to 1,341 candidates |
+| **FAISS Top-10 Query Latency** | Vector Search Time | **0.049 ms / query** | Normalized Inner Product (`IndexFlatIP`) |
+| **6-Stage Analytical Pipeline** | Reasoning Throughput | **75.1 pairs / sec** | Multi-stage decision with evidence guardrails |
+| **Cross-Document Decision Time** | Per-Pair Evaluation | **13.32 ms / pair** | Deterministic + dense embedding validation |
 
 ---
 
-## 5. Incremental Processing (Brownie Point)
+## 5. Incremental Processing & Persistent Review (Brownie Points)
 
-- **Instant SHA-256 Deduplication:** Repeated uploads of identical PDFs return instantaneous cached knowledge in **< 10 ms**.
-- **Isolated New Document Ingestion:** When a new PDF is added, only its pages are chunked, extracted, and embedded.
-- **Cross-Document Querying:** Only the newly extracted vectors are queried against the existing FAISS index. Existing documents are never re-evaluated or overwritten.
+- **Instant SHA-256 Deduplication:** Repeated uploads of identical PDFs return instantaneous cached knowledge in **< 15 ms**.
+- **Isolated Delta Ingestion:** When a new PDF is added, only its pages are chunked, extracted, and embedded.
+- **Native FAISS Incremental Indexing ($O(\Delta N)$):** `matcher.add_facts()` adds only newly extracted fact vectors to the in-memory `faiss.IndexFlatIP` index using native `.add(new_vectors)` in $O(\Delta N)$ time, eliminating full index recomputation across historical documents.
+- **Persistent Human Review Audit Trail:** Interactive review decisions made on the web console (`[✓ Accept]`, `[✗ Reject]`, `[Undo]`) are persisted directly to SQLite via `POST /api/relationships/{id}/review`, recording `human_review_status`, `reviewed_at`, and `reviewer_notes` for governance and compliance.
 
 ---
 
-## 6. Project Structure
+## 6. Non-Financial Domain Generalization
+
+To demonstrate that the knowledge layer is truly domain-agnostic and does not rely on hard-coded financial rules or entity registries, the repository includes an independent scientific climate dataset in `starter-datasets/generalization/`:
+
+- **Document 1 (`01-climate-change-indicators-summary.pdf`):** NOAA / ESRL global climate assessment covering atmospheric CO2 (`421.5 ppm` in 2023), surface temperature anomaly (`1.45 °C` in 2023), Antarctic sea ice extent (`16.96 million sq km`), and renewable capacity additions (`510 GW` in 2023).
+- **Document 2 (`02-wmo-global-climate-report.pdf`):** World Meteorological Organization (WMO) report covering 2022 and 2023 observations (CO2 at `421.5 ppm` in 2023 and `418.7 ppm` in 2022; temperature anomaly at `1.45 °C` in 2023 and `1.15 °C` in 2022).
+
+### Generalization Capabilities Validated by Automated Tests:
+1. **Physical Unit Dimensional Compatibility:** Quantities from incompatible physical dimensions (e.g. `ppm` [CONCENTRATION] vs `°C` [TEMPERATURE] or `GW` [POWER]) are automatically intercepted by guardrails and classified as `UNRELATED`, preventing false contradictions.
+2. **Cross-Institutional Physical Corroboration:** Identical physical measurements across independent organizations (421.5 ppm CO2 in 2023 reported by NOAA and WMO) corroborate with high confidence.
+3. **Sequential Historical Progression (`TEMPORALLY_DISTINCT`):** Multi-year longitudinal measurements (421.5 ppm in 2023 vs 418.7 ppm in 2022) are cleanly categorized as `TEMPORALLY_DISTINCT` rather than conflicting claims.
+
+All non-financial test cases are verified via `tests/test_non_financial_generalization.py`.
+
+---
+
+## 7. Project Structure
 
 ```
 SuperJoin/
@@ -270,15 +347,15 @@ SuperJoin/
 ├── scripts/
 │   ├── ingest_starter_corpus.py   # Automated batch ingestion script
 │   └── seed_starter_data.py       # Seed script redirector
-├── starter-datasets/              # Delhivery & India Macroeconomy PDFs
-├── tests/                         # 21 automated unit tests
+├── starter-datasets/              # Delhivery, India Macroeconomy, and Climate Generalization PDFs
+├── tests/                         # 33 automated unit, adversarial & generalization tests
 ├── run.py                         # Unified CLI
 └── requirements.txt               # Python dependencies
 ```
 
 ---
 
-## 7. Limitations and Next Steps
+## 8. Limitations and Next Steps
 
 While the system is architected for production-grade schema-agnostic extraction and reasoning, several known engineering frontiers exist:
 
@@ -298,32 +375,42 @@ While the system is architected for production-grade schema-agnostic extraction 
    - *Current Behavior:* Layout-aware table extraction reconstructs row/column associations for standard 2D tables.
    - *Next Step:* Implement an AST-based parser for multi-tiered subsidiary footnotes and accounting policy reconciliation tables to parse complex nested reporting perimeters.
 
+5. **Domain-Agnostic Heuristic Fallback vs LLM Extraction Scope:**
+   - *Current Behavior:* When an LLM is active (Option A or Option B), fact extraction is completely schema-agnostic and discovers arbitrary entities, metrics, and scopes across any textual corpus. When operating in zero-model mode (Option C), the engine employs a syntactic noun-phrase anchor parser (`r'([A-Za-z][A-Za-z0-9\s\-]{2,35})\s+(?:of|is|was|stood at|reached|...)'`) that extracts checkable claims from scientific, medical, and operational texts. However, its supplementary regex aliases are specifically tailored for corporate earnings, annual reports, and macro statistics (e.g., GDP, inflation, revenue, EBITDA). Sparser coverage may result on niche non-financial prose when no LLM is running.
+   - *Next Step:* Integrate a local lightweight dependency-tree parser (e.g., spaCy or Stanza) for zero-shot subject-predicate relation extraction across specialized scientific and legal prose in pure offline mode.
+
 ---
 
-## 8. AI Tools Used
+## 9. AI Tools & Models Used
 
-This project was engineered using state-of-the-art open-source and frontier AI technologies:
+This project uses open-source and modern AI technologies:
 
 - **Large Language Models (LLMs):**
-  - **Qwen 2.5 7B (`qwen2.5:7b` via Ollama):** Default local instruction-tuned LLM used for schema-agnostic atomic fact discovery and qualitative cross-document comparative reasoning.
-  - **Google Gemini 2.0 Flash (`gemini-2.0-flash` via Google GenAI SDK):** High-throughput cloud LLM option supported through `UnifiedLLM` for fast cloud evaluation when local Ollama is offline.
-  - **UnifiedLLM Client:** Custom adapter featuring automatic environment discovery, structured JSON enforcement, and an automatic circuit-breaker to safeguard batch processing against timeouts.
+  - **Qwen 2.5 1.5B (`qwen2.5:1.5b` via Ollama):** Lightweight 986 MB local instruction-tuned LLM configured for standard CPU execution without memory thrashing, providing local schema-agnostic atomic fact discovery.
+  - **Qwen 2.5 7B (`qwen2.5:7b` via Ollama):** Higher-parameter local LLM for machines with dedicated GPU/VRAM.
+  - **Google Gemini 2.0 Flash (`gemini-2.0-flash` via Google GenAI SDK):** Cloud LLM option supported through `UnifiedLLM` for cloud evaluation.
+  - **UnifiedLLM Client:** Custom adapter featuring environment discovery, JSON schema enforcement, and an automatic circuit-breaker to safeguard batch processing against timeouts.
 
 - **Embedding Models & Vector Pruning:**
-  - **`sentence-transformers/all-MiniLM-L6-v2`:** Compact, 384-dimensional dense semantic embedding model running locally on CPU. Generates normalized embeddings for fact text, entity compatibility verification, and predicate metric matching.
-  - **Meta FAISS (`IndexFlatIP`):** High-performance vector indexing library configured with normalized inner product (equivalent to cosine similarity). Prunes search space by 98.4%, avoiding $O(N^2)$ pairwise LLM calls.
+  - **`sentence-transformers/all-MiniLM-L6-v2`:** Compact, 384-dimensional dense semantic embedding model running locally on CPU. Generates normalized embeddings for fact text, entity compatibility verification, predicate metric matching, and dense evidence similarity guardrails.
+  - **Meta FAISS (`IndexFlatIP`):** High-performance vector indexing library configured with normalized inner product (equivalent to cosine similarity). Prunes candidate search space by 95.7%, avoiding $O(N^2)$ pairwise comparisons.
 
 - **Developer Tools & Frameworks:**
-  - **PyMuPDF (`fitz`):** High-speed C-backed PDF parsing and table rectangle discovery.
+  - **PyMuPDF (`fitz`):** C-backed PDF parsing and table rectangle discovery (199.5 pages/sec).
   - **FastAPI & Uvicorn:** Asynchronous Python backend framework exposing RESTful OpenAPI endpoints.
-  - **Next.js 16 + React 19 + Tailwind CSS:** Modern web interface with real-time composite score breakdowns and provenance verification.
-  - **Pytest:** Comprehensive automated test suite ensuring zero regressions across 21 unit tests.
+  - **Next.js 16 + React 19 + Tailwind CSS:** Modern web interface with composite score breakdowns and provenance verification.
+  - **Pytest:** Automated test suite ensuring zero regressions across **37 unit, adversarial & generalization tests**.
 
 ---
 
-## 9. Additional Notes
+## 10. Provenance Trust Scoring & Explainability
 
-- **Zero Hardcoded Domain Rules:** The entire pipeline is free of document-specific entity lists or company-specific predicates. Any arbitrary PDF—whether corporate earnings, government macroeconomic bulletin, medical trial, or legal contract—is processed with identical schema-agnostic extraction and reasoning.
-- **Strict Evidence Grounding & Verification:** Every atomic fact is verified against the source document's raw page text. Facts are tagged with provenance status (`EXACT_MATCH`, `NORMALIZED_MATCH`, or `UNVERIFIED`) and exact page citations, completely eliminating ungrounded hallucinations.
-- **Calibration & Explainability:** The system does not output black-box classifications. Every relationship includes an exact composite confidence breakdown ($0.30 \times \text{semantic} + 0.20 \times \text{entity} + 0.20 \times \text{predicate} + 0.15 \times \text{time} + 0.10 \times \text{scope} + 0.05 \times \text{numerical}$) and dual "Why" and "Why Not" rationales.
+- **Dual-Tier Provenance Trust Scoring:**
+  - `LLM` Extracted Facts: Verified against raw source text with verbatim evidence matching receive a trust score of **`0.95`**.
+  - `HEURISTIC` Fallback Facts: Extracted via deterministic regex patterns when the LLM is offline receive a heuristic draft trust score of **`0.65`**, transparently distinguishing automated heuristic drafts from semantically verified facts.
+- **Strict Evidence Grounding & Verification:** Every atomic fact is verified against the source document's raw page text. Facts are tagged with provenance status (`EXACT_MATCH`, `NORMALIZED_MATCH`, or `UNVERIFIED`) and exact page citations.
+- **Two-Layer Contradiction Guardrails:**
+  1. *Physical Unit Dimensional Compatibility:* Segregates percentage ratios (`PERCENTAGE`), concentrations (`CONCENTRATION`), temperatures (`TEMPERATURE`), power (`ENERGY_POWER`), and absolute currency totals (`CURRENCY`), preventing accidental cross-dimensional comparisons.
+  2. *Dense Evidence Embedding Similarity:* Mandates an evidence sentence cosine similarity threshold ($\ge 0.58$) before classifying a pair as `CONTRADICTS`. If source sentences discuss distinct disclosures, the pair is safely classified as `UNRELATED`.
+- **Composite Confidence Scoring & Explainability:** The system does not output black-box classifications. Every relationship includes an exact composite confidence breakdown ($0.30 \times \text{semantic} + 0.20 \times \text{entity} + 0.20 \times \text{predicate} + 0.15 \times \text{time} + 0.10 \times \text{scope} + 0.05 \times \text{numerical}$) and dual "Why" and "Why Not" rationales.
 

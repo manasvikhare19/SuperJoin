@@ -67,7 +67,7 @@ class RelationshipResult(BaseModel):
     reasoning: str = Field(description="Detailed explanation justifying the classification based on context and evidence")
     why_explanation: str = Field(default="", description="Explicit breakdown of positive evidence supporting this class")
     why_not_explanation: str = Field(default="", description="Explicit justification for rejecting alternative classifications")
-    breakdown: Optional[Dict[str, float]] = Field(default_factory=dict, description="Calibrated component weights")
+    breakdown: Optional[Dict[str, float]] = Field(default_factory=dict, description="Composite component weights")
 
 class RelationshipRecord(BaseModel):
     id: Optional[int] = None
@@ -80,4 +80,7 @@ class RelationshipRecord(BaseModel):
     why_not_explanation: str = ""
     confidence_breakdown_json: str = "{}"
     similarity: Optional[float] = 0.0
+    human_review_status: Optional[str] = None
+    reviewed_at: Optional[str] = None
+    reviewer_notes: Optional[str] = ""
     created_at: Optional[str] = None
