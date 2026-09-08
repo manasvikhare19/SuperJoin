@@ -319,8 +319,8 @@ export default function Page() {
       const [resStats, resDocs, resFacts, resRels, resFour] = await Promise.all([
         fetch('/api/stats').catch(() => null),
         fetch('/api/documents').catch(() => null),
-        fetch('/api/facts?limit=250').catch(() => null),
-        fetch('/api/relationships').catch(() => null),
+        fetch('/api/facts?limit=100').catch(() => null),
+        fetch('/api/relationships?limit=100').catch(() => null),
         fetch('/api/four-cases').catch(() => null),
       ])
 
@@ -364,7 +364,7 @@ export default function Page() {
 
   useEffect(() => {
     fetchBackendData()
-    const interval = setInterval(fetchBackendData, 5000)
+    const interval = setInterval(fetchBackendData, 30000)
     return () => clearInterval(interval)
   }, [])
 
@@ -728,9 +728,14 @@ export default function Page() {
               </div>
 
               <div className="fact-list">
-                {filteredFacts.map((fact) => (
+                {filteredFacts.slice(0, 50).map((fact) => (
                   <FactRow key={fact.id} fact={fact} onClick={() => setInspectFact(fact)} />
                 ))}
+                {filteredFacts.length > 50 && (
+                  <p style={{ textAlign: 'center', color: '#78908a', fontSize: '12px', padding: '16px 0' }}>
+                    Showing top 50 facts (out of {filteredFacts.length} total). Use the search bar above to filter by entity, predicate, or period.
+                  </p>
+                )}
                 {filteredFacts.length === 0 && (
                   <div className="empty-state">No facts match your query.</div>
                 )}
@@ -770,7 +775,7 @@ export default function Page() {
               </div>
 
               <div className="relationship-list">
-                {filteredRelationships.map((rel) => {
+                {filteredRelationships.slice(0, 40).map((rel) => {
                   const color =
                     rel.relationship === 'CORROBORATES'
                       ? 'teal'
@@ -955,6 +960,11 @@ export default function Page() {
                     </div>
                   )
                 })}
+                {filteredRelationships.length > 40 && (
+                  <p style={{ textAlign: 'center', color: '#78908a', fontSize: '12px', padding: '16px 0' }}>
+                    Showing top 40 cross-document relationships sorted by priority & confidence (out of {filteredRelationships.length} total).
+                  </p>
+                )}
                 {filteredRelationships.length === 0 && (
                   <div className="empty-state">No relationships matching filter.</div>
                 )}

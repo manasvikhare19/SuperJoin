@@ -249,7 +249,12 @@ class DatabaseManager:
             conn.commit()
             return cursor.lastrowid
 
-    def list_relationships(self, relationship_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_relationships(
+        self,
+        relationship_filter: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
         """Returns relationships joined with fact and document information for easy presentation."""
         query = """
             SELECT 
@@ -301,7 +306,10 @@ class DatabaseManager:
         if relationship_filter:
             query += " WHERE r.relationship = ?"
             params.append(relationship_filter.upper())
-        query += " ORDER BY r.confidence DESC, r.similarity DESC"
+        query += " ORDER BY CASE WHEN r.relationship = 'UNRELATED' THEN 1 ELSE 0 END, r.confidence DESC, r.similarity DESC"
+        if limit is not None:
+            query += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
 
         with get_connection(self.db_path) as conn:
             rows = conn.execute(query, params).fetchall()

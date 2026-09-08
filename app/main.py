@@ -106,9 +106,10 @@ def get_four_cases():
 
 @app.get("/api/relationships")
 def list_relationships(
-    relationship_type: Optional[str] = Query(None, description="Filter: CORROBORATES, CONTRADICTS, RECONCILES, NEEDS_REVIEW, UNRELATED")
+    relationship_type: Optional[str] = Query(None, description="Filter: CORROBORATES, CONTRADICTS, RECONCILES, NEEDS_REVIEW, UNRELATED"),
+    limit: int = Query(150, ge=1, le=1000)
 ):
-    rels = db.list_relationships(relationship_filter=relationship_type)
+    rels = db.list_relationships(relationship_filter=relationship_type, limit=limit)
     return {"total": len(rels), "relationships": rels}
 
 @app.post("/api/compare")
