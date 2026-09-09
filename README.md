@@ -127,7 +127,7 @@ During automated ingestion across the multi-document corpus:
 
 ---
 
-### Category 1: CORROBORATES — Substring-Level Grounding & Dual Explainability
+### Category 1: CORROBORATES - Substring-Level Grounding & Dual Explainability
 ![Cross-Document Corroboration](docs/images/01-corroborates-email-exact-match.png)
 
 - **Empirical Claim:** Primary email address `manasvikhare9@gmail.com` across independent resume PDFs (`Manasvi_Khatabook_Product_Intern (1).pdf` vs `Manasvi_Khare_Resume_HitWicket.pdf`).
@@ -139,7 +139,7 @@ During automated ingestion across the multi-document corpus:
 
 ---
 
-### Category 1b: CORROBORATES — Quantitative Metrics & Live Mathematical Confidence
+### Category 1b: CORROBORATES - Quantitative Metrics & Live Mathematical Confidence
 ![Quantitative Corroboration & Live Mathematical Formula](docs/images/02-corroborates-metrics-live-formula.png)
 
 - **Empirical Claims:** Event coordination metric `participants: 4,500+ participants` across consecutive editions, and certification test score `score: 95.8 / 100` (`95.8 out of 100`) for Google Cloud Generative AI Fundamentals.
@@ -152,7 +152,7 @@ During automated ingestion across the multi-document corpus:
 
 ---
 
-### Category 2: CONTRADICTS — Genuine Empirical Contradiction Detection
+### Category 2: CONTRADICTS - Genuine Empirical Contradiction Detection
 ![Genuine Empirical Contradiction](docs/images/03-contradicts-delhivery-vs-rbi-gdp.png)
 
 - **Empirical Contradiction Discovered:**
@@ -167,7 +167,7 @@ During automated ingestion across the multi-document corpus:
 
 ---
 
-### Category 3: RECONCILES — Contextual & Geographic Reconciliation
+### Category 3: RECONCILES - Contextual & Geographic Reconciliation
 ![Contextual Reconciliation](docs/images/04-reconciles-university-location-context.png)
 
 - **Empirical Claims:** `university: VIT Bhopal University` vs `location: Bhopal, Madhya Pradesh` for entity `Manasvi Khare`.
@@ -178,7 +178,7 @@ During automated ingestion across the multi-document corpus:
 
 ---
 
-### Category 4: LIKELY_CONTRADICTION — Statistical Vintage Revisions & Reviewer State Persistence
+### Category 4: LIKELY_CONTRADICTION - Statistical Vintage Revisions & Reviewer State Persistence
 ![Statistical Vintage Revision & Reviewer State](docs/images/05-likely-contradiction-accepted-review.png)
 
 - **Empirical Disclosures:**
@@ -190,7 +190,7 @@ During automated ingestion across the multi-document corpus:
 
 ---
 
-### Category 5: NEEDS_REVIEW — Scope & Reporting Perimeter Divergence
+### Category 5: NEEDS_REVIEW - Scope & Reporting Perimeter Divergence
 ![Ambiguous Reporting Context Needs Review](docs/images/06-needs-review-standalone-vs-consolidated.png)
 
 - **Empirical Disclosures:**
