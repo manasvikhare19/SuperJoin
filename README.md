@@ -134,8 +134,8 @@ During automated ingestion across the multi-document corpus:
 - **Evidence Verification:** Verbatim substring match (`EXACT_MATCH`) with exact page citations (Page 1 in both PDFs).
 - **Composite Confidence:** **`100.0%`** (Dense Vector Similarity: `1.000`).
 - **Explainability Cards:**
-  - 💡 **Why CORROBORATES:** Both facts refer to the exact same subject (`Manasvi Khare`) and assert the same email address extracted from two different documents.
-  - 🚫 **Why Not Alternative Classes:** Rejected `CONTRADICTS`: Figures and reporting metrics agree under normalized scale.
+  -  **Why CORROBORATES:** Both facts refer to the exact same subject (`Manasvi Khare`) and assert the same email address extracted from two different documents.
+  -  **Why Not Alternative Classes:** Rejected `CONTRADICTS`: Figures and reporting metrics agree under normalized scale.
 
 ---
 
@@ -162,8 +162,8 @@ During automated ingestion across the multi-document corpus:
 - **Mathematical Factor Breakdown:**
   - Semantic: `87%` | Entity: `85%` | Predicate: `100%` | Time: `100%` | Scope: `90%` | Numerical: `40%`
 - **Explainability:**
-  - 💡 **Why CONTRADICTS:** Direct empirical contradiction: Fact A reports 7.2% whereas Fact B reports 6.5% for the exact same subject (`Economic`), predicate (`real GDP growth rate`), time period (`FY2025`), and scope.
-  - 🚫 **Why Not Alternative Classes:** Rejected `CORROBORATES`: Figures are mathematically irreconcilable. Rejected `RECONCILES`: Time horizon and perimeter are identical; there is no contextual parameter explaining the numerical clash.
+  -  **Why CONTRADICTS:** Direct empirical contradiction: Fact A reports 7.2% whereas Fact B reports 6.5% for the exact same subject (`Economic`), predicate (`real GDP growth rate`), time period (`FY2025`), and scope.
+  -  **Why Not Alternative Classes:** Rejected `CORROBORATES`: Figures are mathematically irreconcilable. Rejected `RECONCILES`: Time horizon and perimeter are identical; there is no contextual parameter explaining the numerical clash.
 
 ---
 
@@ -173,8 +173,8 @@ During automated ingestion across the multi-document corpus:
 - **Empirical Claims:** `university: VIT Bhopal University` vs `location: Bhopal, Madhya Pradesh` for entity `Manasvi Khare`.
 - **System Classification:** **`RECONCILES`** (Composite Confidence: **`84.5%`**, Vector Similarity: `0.843`).
 - **Explainability:**
-  - 💡 **Why RECONCILES:** Both facts describe the same person and provide contextual geographical consistency (Bhopal, Madhya Pradesh). Values are not numerically identical but consistent in entity context.
-  - 🚫 **Why Not Alternative Classes:** Rejected `CONTRADICTS`: Apparent difference is explained by differing semantic attribute context rather than conflict.
+  -  **Why RECONCILES:** Both facts describe the same person and provide contextual geographical consistency (Bhopal, Madhya Pradesh). Values are not numerically identical but consistent in entity context.
+  -  **Why Not Alternative Classes:** Rejected `CONTRADICTS`: Apparent difference is explained by differing semantic attribute context rather than conflict.
 
 ---
 
