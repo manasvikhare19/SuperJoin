@@ -10,7 +10,9 @@
 
 ---
 
-## 1. Quickstart & Execution Guide
+## Setup and Run Instructions
+
+### Quickstart & Execution Guide
 
 ### Prerequisites
 - Python 3.10+ (tested on Python 3.12)
@@ -98,7 +100,19 @@ The Streamlit fallback dashboard opens at **`http://localhost:8501`**.
 
 ---
 
-## 2. Live Production UI & Empirical Findings Showcase
+## Approach
+
+SuperJoin addresses the fundamental challenge of automated cross-document knowledge reconciliation: **two documents can report numbers that appear contradictory even when they describe entirely different things.**
+
+To solve this with production-grade precision and zero hardcoded schemas, our approach is built on a four-pillar methodology:
+1. **Dynamic, Schema-Agnostic Extraction**: Rather than enforcing brittle entity-relationship templates, the extraction engine extracts atomic checkable claims (entity, predicate, value, unit, time period, scope) from arbitrary unstructured text and tables.
+2. **Strict Verbatim Evidence Grounding**: Every extracted claim is immediately verified against raw source document pages using substring and normalized matching, assigning cryptographic page-level provenance (`EXACT_MATCH`, `NORMALIZED_MATCH`).
+3. **Dense Vector Pruning & Multi-Stage Analytical Decision Pipeline**: Meta FAISS (`IndexFlatIP`) dense semantic embeddings prune 98.4% of candidate pairs, passing high-probability pairs through a 6-stage deterministic pipeline (Entity Compatibility, Predicate Semantics, Time/Scope Granularity, Unit Dimensional Guardrails, Numerical Equivalence, and Multi-Factor Confidence Scoring).
+4. **Transparent Explainability & Human Governance**: Black-box classification is strictly avoided. Every decision provides exact mathematical factor breakdowns ($0.30\times\text{Sim} + 0.20\times\text{Ent} + \dots$), "Why" and "Why Not" rationales, and an interactive SQLite-persisted Human-in-the-Loop review workflow.
+
+---
+
+### Live Production UI & Empirical Findings Showcase
 
 The SuperJoin Web Console (`http://localhost:3000`) provides a rich, responsive interface for cross-document analysis. All claims are grounded down to verbatim source quotes, evaluated across a 6-stage decision pipeline, and presented with transparent mathematical scoring and human-in-the-loop review controls.
 
@@ -188,7 +202,7 @@ During automated ingestion across the multi-document corpus:
 
 ---
 
-## 3. Core Architecture & Multi-Stage Decision Pipeline
+### Core Architecture & Multi-Stage Decision Pipeline
 
 ```
                                   PDF Upload
@@ -274,7 +288,7 @@ During automated ingestion across the multi-document corpus:
 
 ---
 
-## 4. Dynamic Demonstration of Four Required Cases
+### Dynamic Demonstration of Four Required Cases
 
 The system queries all four cases dynamically from SQLite (`GET /api/four-cases`):
 
@@ -356,7 +370,7 @@ The system queries all four cases dynamically from SQLite (`GET /api/four-cases`
 
 ---
 
-## 5. Empirical System Benchmarks & Latency Optimizations
+### Empirical System Benchmarks & Latency Optimizations
 
 Measured using Python `time.perf_counter()` across the starter corpus (511 pages, 6 PDFs, 1.65M characters) running on a local workstation CPU. Independently reproducible via `python scripts/benchmark_pipeline.py`:
 
@@ -381,7 +395,7 @@ Measured using Python `time.perf_counter()` across the starter corpus (511 pages
 
 ---
 
-## 6. Incremental Processing & Persistent Review (Brownie Points)
+### Incremental Processing & Persistent Review (Brownie Points)
 
 - **Instant SHA-256 Deduplication:** Repeated uploads of identical PDFs return instantaneous cached knowledge in **< 15 ms**.
 - **Isolated Delta Ingestion:** When a new PDF is added, only its pages are chunked, extracted, and embedded.
@@ -390,7 +404,7 @@ Measured using Python `time.perf_counter()` across the starter corpus (511 pages
 
 ---
 
-## 7. Non-Financial Domain Generalization
+### Non-Financial Domain Generalization
 
 To demonstrate that the knowledge layer is truly domain-agnostic and does not rely on hard-coded financial rules or entity registries, the repository includes an independent scientific climate dataset in `starter-datasets/generalization/`:
 
@@ -406,7 +420,42 @@ All non-financial test cases are verified via `tests/test_non_financial_generali
 
 ---
 
-## 8. Project Structure
+### AI Tools & Models Used
+
+This project uses open-source and modern AI technologies:
+
+- **Large Language Models (LLMs):**
+  - **Google Gemini Flash Lite (`gemini-flash-lite-latest` via Google GenAI SDK):** Primary cloud LLM providing sub-1.5s extraction per chunk with generous rate limits, avoiding free-tier daily cap throttling.
+  - **Qwen 2.5 1.5B (`qwen2.5:1.5b` via Ollama):** Lightweight 986 MB local instruction-tuned LLM configured for standard CPU execution without memory thrashing, providing local schema-agnostic atomic fact discovery.
+  - **Qwen 2.5 7B (`qwen2.5:7b` via Ollama):** Higher-parameter local LLM for machines with dedicated GPU/VRAM.
+  - **UnifiedLLM Client:** Custom adapter featuring environment discovery, JSON schema enforcement, and an automatic circuit-breaker to safeguard batch processing against timeouts.
+
+- **Embedding Models & Vector Pruning:**
+  - **`sentence-transformers/all-MiniLM-L6-v2` & `gemini-embedding-001`:** Compact dense semantic embedding models running locally or in cloud with zero-latency deterministic fallback. Generates normalized embeddings for fact text, entity compatibility verification, predicate metric matching, and dense evidence similarity guardrails.
+  - **Meta FAISS (`IndexFlatIP`):** High-performance vector indexing library configured with normalized inner product (equivalent to cosine similarity). Prunes candidate search space by 98.4%, avoiding $O(N^2)$ pairwise comparisons.
+
+- **Developer Tools & Frameworks:**
+  - **PyMuPDF (`fitz`):** C-backed PDF parsing and table rectangle discovery (199.5 pages/sec).
+  - **FastAPI & Uvicorn:** Asynchronous Python backend framework exposing RESTful OpenAPI endpoints.
+  - **Next.js 16 + React 19 + Tailwind CSS:** Modern web interface with composite score breakdowns and provenance verification.
+  - **Pytest:** Automated test suite ensuring zero regressions across **37 unit, adversarial & generalization tests**.
+
+---
+
+### Provenance Trust Scoring & Explainability
+
+- **Dual-Tier Provenance Trust Scoring:**
+  - `LLM` Extracted Facts: Verified against raw source text with verbatim evidence matching receive a trust score of **`0.95`**.
+  - `HEURISTIC` Fallback Facts: Extracted via deterministic regex patterns when the LLM is offline receive a heuristic draft trust score of **`0.65`**, transparently distinguishing automated heuristic drafts from semantically verified facts.
+- **Strict Evidence Grounding & Verification:** Every atomic fact is verified against the source document's raw page text. Facts are tagged with provenance status (`EXACT_MATCH`, `NORMALIZED_MATCH`, or `UNVERIFIED`) and exact page citations.
+- **Two-Layer Contradiction Guardrails:**
+  1. *Physical Unit Dimensional Compatibility:* Segregates percentage ratios (`PERCENTAGE`), concentrations (`CONCENTRATION`), temperatures (`TEMPERATURE`), power (`ENERGY_POWER`), and absolute currency totals (`CURRENCY`), preventing accidental cross-dimensional comparisons.
+  2. *Dense Evidence Embedding Similarity:* Mandates an evidence sentence cosine similarity threshold ($\ge 0.58$) before classifying a pair as `CONTRADICTS`. If source sentences discuss distinct disclosures, the pair is safely classified as `UNRELATED`.
+- **Composite Confidence Scoring & Explainability:** The system does not output black-box classifications. Every relationship includes an exact composite confidence breakdown ($0.30 \times \text{semantic} + 0.20 \times \text{entity} + 0.20 \times \text{predicate} + 0.15 \times \text{time} + 0.10 \times \text{scope} + 0.05 \times \text{numerical}$) and dual "Why" and "Why Not" rationales.
+
+---
+
+### Project Structure
 
 ```
 SuperJoin/
@@ -454,7 +503,7 @@ SuperJoin/
 
 ---
 
-## 9. Limitations and Next Steps
+## Limitations and Next Steps
 
 While the system is architected for production-grade schema-agnostic extraction and reasoning, several known engineering frontiers exist:
 
@@ -480,35 +529,9 @@ While the system is architected for production-grade schema-agnostic extraction 
 
 ---
 
-## 10. AI Tools & Models Used
+## Additional Notes
 
-This project uses open-source and modern AI technologies:
-
-- **Large Language Models (LLMs):**
-  - **Google Gemini Flash Lite (`gemini-flash-lite-latest` via Google GenAI SDK):** Primary cloud LLM providing sub-1.5s extraction per chunk with generous rate limits, avoiding free-tier daily cap throttling.
-  - **Qwen 2.5 1.5B (`qwen2.5:1.5b` via Ollama):** Lightweight 986 MB local instruction-tuned LLM configured for standard CPU execution without memory thrashing, providing local schema-agnostic atomic fact discovery.
-  - **Qwen 2.5 7B (`qwen2.5:7b` via Ollama):** Higher-parameter local LLM for machines with dedicated GPU/VRAM.
-  - **UnifiedLLM Client:** Custom adapter featuring environment discovery, JSON schema enforcement, and an automatic circuit-breaker to safeguard batch processing against timeouts.
-
-- **Embedding Models & Vector Pruning:**
-  - **`sentence-transformers/all-MiniLM-L6-v2` & `gemini-embedding-001`:** Compact dense semantic embedding models running locally or in cloud with zero-latency deterministic fallback. Generates normalized embeddings for fact text, entity compatibility verification, predicate metric matching, and dense evidence similarity guardrails.
-  - **Meta FAISS (`IndexFlatIP`):** High-performance vector indexing library configured with normalized inner product (equivalent to cosine similarity). Prunes candidate search space by 98.4%, avoiding $O(N^2)$ pairwise comparisons.
-
-- **Developer Tools & Frameworks:**
-  - **PyMuPDF (`fitz`):** C-backed PDF parsing and table rectangle discovery (199.5 pages/sec).
-  - **FastAPI & Uvicorn:** Asynchronous Python backend framework exposing RESTful OpenAPI endpoints.
-  - **Next.js 16 + React 19 + Tailwind CSS:** Modern web interface with composite score breakdowns and provenance verification.
-  - **Pytest:** Automated test suite ensuring zero regressions across **37 unit, adversarial & generalization tests**.
-
----
-
-## 11. Provenance Trust Scoring & Explainability
-
-- **Dual-Tier Provenance Trust Scoring:**
-  - `LLM` Extracted Facts: Verified against raw source text with verbatim evidence matching receive a trust score of **`0.95`**.
-  - `HEURISTIC` Fallback Facts: Extracted via deterministic regex patterns when the LLM is offline receive a heuristic draft trust score of **`0.65`**, transparently distinguishing automated heuristic drafts from semantically verified facts.
-- **Strict Evidence Grounding & Verification:** Every atomic fact is verified against the source document's raw page text. Facts are tagged with provenance status (`EXACT_MATCH`, `NORMALIZED_MATCH`, or `UNVERIFIED`) and exact page citations.
-- **Two-Layer Contradiction Guardrails:**
-  1. *Physical Unit Dimensional Compatibility:* Segregates percentage ratios (`PERCENTAGE`), concentrations (`CONCENTRATION`), temperatures (`TEMPERATURE`), power (`ENERGY_POWER`), and absolute currency totals (`CURRENCY`), preventing accidental cross-dimensional comparisons.
-  2. *Dense Evidence Embedding Similarity:* Mandates an evidence sentence cosine similarity threshold ($\ge 0.58$) before classifying a pair as `CONTRADICTS`. If source sentences discuss distinct disclosures, the pair is safely classified as `UNRELATED`.
-- **Composite Confidence Scoring & Explainability:** The system does not output black-box classifications. Every relationship includes an exact composite confidence breakdown ($0.30 \times \text{semantic} + 0.20 \times \text{entity} + 0.20 \times \text{predicate} + 0.15 \times \text{time} + 0.10 \times \text{scope} + 0.05 \times \text{numerical}$) and dual "Why" and "Why Not" rationales.
+- **Diverse Domain Stress-Testing (Personal Career Documents)**: In addition to corporate earnings and macro-economic publications (Delhivery, RBI Annual Report, Economic Survey, IMF Article IV), the ingestion pipeline was empirically evaluated on personal career resumes (`Manasvi_Khatabook_Product_Intern (1).pdf` vs `Manasvi_Khare_Resume_HitWicket.pdf`). This verified that the system extracts atomic facts (contact info, event participation numbers, test scores) with zero domain bias or pre-configured financial templates.
+- **Interactive Human-in-the-Loop Review Audit Trail**: Reviewer decisions (`[✓ Accept]`, `[✗ Reject]`, `[Undo]`) made in the web console are persisted to SQLite with reviewer notes and timestamps via `POST /api/relationships/{id}/review`, demonstrating compliance governance for ambiguity resolution.
+- **Incremental Scalability ($O(\Delta N)$)**: Re-uploading identical documents terminates instantaneously in `<15 ms` via SHA-256 caching without duplicating records. New documents perform isolated incremental vector additions via native `faiss.IndexFlatIP.add()`, scaling efficiently without full index recomputation.
+- **Production Latency & Reliability Guardrails**: Tuned with `gemini-flash-lite-latest` and local embedding fallbacks, delivering sustained ~1.2s extraction throughput and sub-100ms UI responsiveness without hitting free-tier daily quotas.
